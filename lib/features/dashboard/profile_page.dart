@@ -35,7 +35,7 @@ class _ProfilePageState extends State<ProfilePage> {
       await Supabase.instance.client.from('profiles').update({
         'username': _usernameController.text,
       }).eq('id', userId);
-      
+
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile Updated!")));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
@@ -47,31 +47,50 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Gardener Profile")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const CircleAvatar(radius: 50, child: Icon(Icons.person, size: 50)),
-            const SizedBox(height: 10),
-            Text("Current Streak: $_currentStreak days 🔥", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _usernameController,
-              decoration: const InputDecoration(
-                labelText: "Display Name",
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.edit)
+      body: SingleChildScrollView( // FIXED: Allows scrolling in landscape/keyboard view
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400), // Keeps content readable on tablets/web
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  const CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.teal,
+                      child: Icon(Icons.person, size: 50, color: Colors.white)
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                      "Current Streak: $_currentStreak days 🔥",
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepOrange)
+                  ),
+                  const SizedBox(height: 30),
+                  TextField(
+                    controller: _usernameController,
+                    decoration: const InputDecoration(
+                        labelText: "Display Name",
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.edit)
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _isLoading
+                      ? const CircularProgressIndicator()
+                      : ElevatedButton(
+                    onPressed: _updateProfile,
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text("Save Changes"),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 20),
-            _isLoading 
-            ? const CircularProgressIndicator() 
-            : ElevatedButton(
-                onPressed: _updateProfile,
-                style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                child: const Text("Save Changes"),
-              ),
-          ],
+          ),
         ),
       ),
     );

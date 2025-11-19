@@ -6,7 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class WaterPourGame extends StatefulWidget {
   final String habitId;
-  
+
   const WaterPourGame({super.key, required this.habitId});
 
   @override
@@ -14,14 +14,15 @@ class WaterPourGame extends StatefulWidget {
 }
 
 class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProviderStateMixin {
-  StreamSubscription<GyroscopeEvent>? _gyroSubscription;
-  double _tiltAngle = 0.0;
-  
+  StreamSubscription<AccelerometerEvent>? _accelSubscription;
+  double _tiltX = 0.0;
+
   double _fillLevel = 0.0;
   bool _isPouring = false;
   bool _completed = false;
-  
+
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioPlayer _effectPlayer = AudioPlayer();
 
   @override
   void initState() {
@@ -30,25 +31,46 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
   }
 
   void _startListeningToSensor() {
-    _gyroSubscription = gyroscopeEventStream().listen((GyroscopeEvent event) {
+    _accelSubscription = accelerometerEvents.listen((AccelerometerEvent event) {
+      if (_completed) return;
+
       setState(() {
-        final orientation = MediaQuery.of(context).orientation;
-        _tiltAngle = orientation == Orientation.portrait ? event.x : event.y;
-        
-        if (_tiltAngle.abs() > 1.0 && !_completed) {
+        _tiltX = event.x;
+        bool nowPouring = _tiltX.abs() > 5.0;
+
+        if (nowPouring && !_isPouring) {
           _isPouring = true;
-          _fillGlass();
-        } else {
+          _playPourSound();
+        } else if (!nowPouring && _isPouring) {
           _isPouring = false;
+          _stopPourSound();
+        }
+
+        if (_isPouring) {
+          _fillGlass();
         }
       });
     });
   }
 
+  Future<void> _playPourSound() async {
+    try {
+      // await _effectPlayer.play(AssetSource('sounds/water_flow.mp3'));
+    } catch(e) {}
+  }
+
+  Future<void> _stopPourSound() async {
+    try {
+      await _effectPlayer.stop();
+    } catch(e) {}
+  }
+
   void _fillGlass() {
     if (_fillLevel < 1.0) {
       setState(() {
-        _fillLevel += 0.02;
+        double flowRate = (_tiltX.abs() - 4.0) / 100.0;
+        if (flowRate < 0.005) flowRate = 0.005;
+        _fillLevel += flowRate;
       });
     } else {
       _finishGame();
@@ -57,29 +79,30 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
 
   Future<void> _finishGame() async {
     if (_completed) return;
-    
+
     _completed = true;
-    _gyroSubscription?.cancel();
-    
+    _isPouring = false;
+    _accelSubscription?.cancel();
+    _stopPourSound();
+
     final userId = Supabase.instance.client.auth.currentUser!.id;
 
     try {
+      // FIXED: Added .toUtc() to ensure it matches UserHome logic
       await Supabase.instance.client.from('habit_logs').insert({
         'habit_id': widget.habitId,
         'user_id': userId,
-        'completed_at': DateTime.now().toIso8601String(),
+        'completed_at': DateTime.now().toUtc().toIso8601String(),
       });
-      
+
       await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
     } catch (e) {
       print('Database Update Error: $e');
     }
 
     try {
-      await _audioPlayer.play(AssetSource('/assets/sounds/success.mp3'));
-    } catch (e) {
-      // Fail silently
-    }
+      await _audioPlayer.play(AssetSource('sounds/success.mp3'));
+    } catch (e) {}
 
     if (mounted) {
       showDialog(
@@ -105,8 +128,9 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
 
   @override
   void dispose() {
-    _gyroSubscription?.cancel();
+    _accelSubscription?.cancel();
     _audioPlayer.dispose();
+    _effectPlayer.dispose();
     super.dispose();
   }
 
@@ -114,7 +138,7 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final canvasSize = (screenSize.height < screenSize.width ? screenSize.height : screenSize.width) * 0.6;
-    final glassAspect = 0.66; 
+    final glassAspect = 0.66;
 
     return Scaffold(
       appBar: AppBar(title: const Text("Tilt to Pour")),
@@ -126,25 +150,24 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  _completed ? "Full! (+1 Point)" : "Tilt your phone to pour water!",
+                  _completed ? "Full! (+1 Point)" : "Tilt phone sideways to pour!",
                   style: Theme.of(context).textTheme.headlineSmall,
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
-                
                 SizedBox(
                   height: canvasSize,
                   width: canvasSize * glassAspect,
                   child: CustomPaint(
                     painter: WaterGlassPainter(
-                      fillLevel: _fillLevel,
-                      isPouring: _isPouring,
-                      tiltAngle: _tiltAngle
+                        fillLevel: _fillLevel > 1.0 ? 1.0 : _fillLevel,
+                        isPouring: _isPouring,
+                        tiltX: _tiltX
                     ),
                   ),
                 ),
-                
                 const SizedBox(height: 20),
-                Text("Fill Level: ${(_fillLevel * 100).toInt()}%"),
+                Text("Fill Level: ${(_fillLevel * 100).clamp(0, 100).toInt()}%"),
               ],
             ),
           ),
@@ -157,12 +180,12 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
 class WaterGlassPainter extends CustomPainter {
   final double fillLevel;
   final bool isPouring;
-  final double tiltAngle;
+  final double tiltX;
 
   WaterGlassPainter({
-    required this.fillLevel, 
-    required this.isPouring, 
-    required this.tiltAngle
+    required this.fillLevel,
+    required this.isPouring,
+    required this.tiltX
   });
 
   @override
@@ -177,37 +200,40 @@ class WaterGlassPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     final Path glassPath = Path();
-    glassPath.moveTo(20, 0);
-    glassPath.lineTo(40, size.height);
-    glassPath.lineTo(size.width - 40, size.height);
-    glassPath.lineTo(size.width - 20, 0);
-    
+    glassPath.moveTo(10, 0);
+    glassPath.lineTo(30, size.height);
+    glassPath.lineTo(size.width - 30, size.height);
+    glassPath.lineTo(size.width - 10, 0);
+
     canvas.drawPath(glassPath, glassPaint);
 
     if (fillLevel > 0) {
       double waterHeight = size.height * fillLevel;
       double topY = size.height - waterHeight;
 
-      Rect waterRect = Rect.fromLTRB(
-        40,
-        topY, 
-        size.width - 40, 
-        size.height
-      );
-      
-      canvas.drawRect(waterRect, waterPaint);
+      Path waterPath = Path();
+      waterPath.moveTo(10 + (20 * (1-fillLevel)), topY);
+      waterPath.lineTo(30, size.height);
+      waterPath.lineTo(size.width - 30, size.height);
+      waterPath.lineTo(size.width - 10 - (20 * (1-fillLevel)), topY);
+
+      canvas.drawPath(waterPath, waterPaint);
     }
 
     if (isPouring) {
       final Paint streamPaint = Paint()
         ..color = Colors.blue.shade200
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 10.0;
+        ..strokeWidth = 8.0
+        ..strokeCap = StrokeCap.round;
+
+      double startX = tiltX > 0 ? 0 : size.width;
+      double endX = size.width / 2;
 
       canvas.drawLine(
-        Offset(size.width / 2, -50), 
-        Offset(size.width / 2, size.height - (size.height * fillLevel)), 
-        streamPaint
+          Offset(startX, -100),
+          Offset(endX, size.height - (size.height * fillLevel)),
+          streamPaint
       );
     }
   }

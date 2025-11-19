@@ -20,16 +20,23 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
   bool _showCalendar = false;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+  Map<DateTime, List<dynamic>> _events = {};
+
+  // UI State for the Claim Button
+  bool _isClaimingLoading = false;
+  bool _optimisticBonusClaimed = false;
 
   late AnimationController _glowController;
 
   @override
   void initState() {
     super.initState();
+    _selectedDay = _focusedDay;
     _glowController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+    _fetchMonthlyEvents();
   }
 
   @override
@@ -38,27 +45,143 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     super.dispose();
   }
 
+  Future<void> _fetchMonthlyEvents() async {
+    final startOfMonth = DateTime(_focusedDay.year, _focusedDay.month, 1);
+    final endOfMonth = DateTime(_focusedDay.year, _focusedDay.month + 1, 0);
+
+    final response = await Supabase.instance.client
+        .from('habit_logs')
+        .select('completed_at')
+        .eq('user_id', _userId)
+        .gte('completed_at', startOfMonth.toIso8601String())
+        .lte('completed_at', endOfMonth.toIso8601String());
+
+    Map<DateTime, List<dynamic>> newEvents = {};
+    for (var log in response) {
+      DateTime date = DateTime.parse(log['completed_at']).toLocal();
+      DateTime dayKey = DateTime.utc(date.year, date.month, date.day);
+      if (newEvents[dayKey] == null) newEvents[dayKey] = [];
+      newEvents[dayKey]!.add(log);
+    }
+
+    if (mounted) {
+      setState(() {
+        _events = newEvents;
+      });
+    }
+  }
+
+  Stream<Map<String, dynamic>> _getProfileStream() {
+    return Supabase.instance.client
+        .from('profiles')
+        .stream(primaryKey: ['id'])
+        .eq('id', _userId)
+        .map((event) => event.first);
+  }
+
   Stream<List<Map<String, dynamic>>> _getHabitsStream() {
     return Supabase.instance.client
         .from('habits')
         .stream(primaryKey: ['id'])
-        .eq('user_id', _userId);
+        .eq('user_id', _userId)
+        .order('created_at');
   }
 
-  Future<List<Map<String, dynamic>>> _getTodayLogs() async {
-    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  Stream<List<Map<String, dynamic>>> _getRecentLogsStream() {
     return Supabase.instance.client
         .from('habit_logs')
-        .select('habit_id')
+        .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
-        .gte('completed_at', '$todayStr 00:00:00');
+        .order('completed_at', ascending: false)
+        .limit(50);
   }
-    
+
+  bool _isHappeningToday(String completedAtIso) {
+    final logDate = DateTime.parse(completedAtIso).toLocal();
+    final now = DateTime.now();
+    return logDate.year == now.year &&
+        logDate.month == now.month &&
+        logDate.day == now.day;
+  }
+
+  Future<void> _claimDailyBonus(int currentPoints) async {
+    setState(() => _isClaimingLoading = true);
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    try {
+      await Supabase.instance.client.from('profiles').update({
+        'points': currentPoints + 30,
+        'last_bonus_date': today,
+      }).eq('id', _userId);
+
+      if (mounted) {
+        setState(() {
+          _isClaimingLoading = false;
+          _optimisticBonusClaimed = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("🎉 30 Points Claimed! Daily Quota Met."), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isClaimingLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    }
+  }
+
+  Future<void> _deleteHabit(String habitId, String habitTitle) async {
+    final logCount = await Supabase.instance.client
+        .from('habit_logs')
+        .count(CountOption.exact)
+        .eq('habit_id', habitId);
+
+    if (!mounted) return;
+
+    if (logCount > 0) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Cannot Delete"),
+          content: Text("'$habitTitle' is part of your history. You cannot delete active habits that have records."),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK"))],
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Habit?"),
+        content: Text("Delete '$habitTitle'? This cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text("Delete")),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await Supabase.instance.client.from('habits').delete().eq('id', habitId);
+      setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final double gardenHeight = isLandscape ? screenHeight * 0.35 : 260.0;
+
     return DefaultTabController(
-      length: 2, 
+      length: 2,
       child: Scaffold(
+        resizeToAvoidBottomInset: false,
         appBar: AppBar(
           title: const Text('My Sanctuary'),
           actions: [
@@ -67,50 +190,89 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
               onPressed: () => setState(() => _showCalendar = !_showCalendar),
             )
           ],
-          bottom: _showCalendar ? null : const TabBar(
+          bottom: _showCalendar
+              ? null
+              : const TabBar(
             tabs: [
               Tab(text: "Unfinished"),
-              Tab(text: "Completed Today"),
+              Tab(text: "Completed"),
             ],
           ),
         ),
         body: Column(
           children: [
             SizedBox(
-              height: 200,
+              height: gardenHeight,
               width: double.infinity,
-              child: FutureBuilder<Map<String, dynamic>>(
-                future: Supabase.instance.client
-                    .from('profiles')
-                    .select('points, current_streak')
-                    .eq('id', _userId)
-                    .single()
-                    .catchError((_) => {'points': 0, 'current_streak': 0}), 
-                builder: (context, snapshot) {
-                  final data = snapshot.data ?? {'points': 0, 'current_streak': 0};
-                  int flowerCount = data['points'] ?? 0;
-                  int streak = data['current_streak'] ?? 0;
-                  
-                  return AnimatedBuilder(
-                    animation: _glowController,
-                    builder: (context, child) {
-                      return CustomPaint(
-                        painter: BetterGardenPainter(
-                          totalPoints: flowerCount, 
-                          currentStreak: streak,
-                          animationValue: _glowController.value,
-                        ), 
-                      );
-                    },
+              child: StreamBuilder<Map<String, dynamic>>(
+                stream: _getProfileStream(),
+                builder: (context, profileSnapshot) {
+                  final profile = profileSnapshot.data ?? {};
+                  final int flowers = profile['points'] ?? 0;
+                  final int streak = profile['current_streak'] ?? 0;
+                  final String? lastBonus = profile['last_bonus_date'];
+
+                  final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+                  final bool isBonusClaimed = (lastBonus == todayStr) || _optimisticBonusClaimed;
+
+                  return Stack(
+                    children: [
+                      Positioned.fill(
+                        child: AnimatedBuilder(
+                          animation: _glowController,
+                          builder: (context, child) {
+                            return CustomPaint(
+                              painter: BetterGardenPainter(
+                                totalPoints: flowers + (_optimisticBonusClaimed ? 30 : 0),
+                                currentStreak: streak,
+                                animationValue: _glowController.value,
+                                isQuotaMet: isBonusClaimed,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      Positioned(
+                        bottom: 10,
+                        left: 16,
+                        right: 16,
+                        child: StreamBuilder<List<Map<String, dynamic>>>(
+                            stream: _getHabitsStream(),
+                            builder: (context, habitSnapshot) {
+                              final habits = habitSnapshot.data ?? [];
+                              final interactiveHabitIds = habits
+                                  .where((h) => h['type'] != 'standard')
+                                  .map((h) => h['id'])
+                                  .toSet();
+
+                              return StreamBuilder<List<Map<String, dynamic>>>(
+                                stream: _getRecentLogsStream(),
+                                builder: (context, logsSnapshot) {
+                                  final allLogs = logsSnapshot.data ?? [];
+
+                                  final interactiveTodayLogs = allLogs.where((log) {
+                                    bool isToday = _isHappeningToday(log['completed_at']);
+                                    bool isInteractive = interactiveHabitIds.contains(log['habit_id']);
+                                    return isToday && isInteractive;
+                                  }).toList();
+
+                                  final int count = interactiveTodayLogs.length;
+
+                                  return _buildQuotaCard(count, isBonusClaimed, flowers);
+                                },
+                              );
+                            }
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
             ),
 
             Expanded(
-              child: _showCalendar 
-                ? _buildCalendarView() 
-                : _buildHabitTabs(),
+              child: _showCalendar ? _buildCalendarView() : _buildHabitTabs(),
             ),
           ],
         ),
@@ -123,44 +285,113 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     );
   }
 
+  Widget _buildQuotaCard(int count, bool isClaimed, int currentPoints) {
+    if (isClaimed) {
+      return Card(
+        color: Colors.white.withOpacity(0.95),
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 28),
+              SizedBox(width: 10),
+              Text("Daily Quota Met! Great work.",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (count >= 10) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: _isClaimingLoading ? null : () => _claimDailyBonus(currentPoints),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.amber,
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.all(16),
+            elevation: 8,
+            shadowColor: Colors.amberAccent,
+          ),
+          icon: _isClaimingLoading
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.card_giftcard, size: 28),
+          label: const Text("Claim 30 Point Bonus!", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        ),
+      );
+    }
+
+    double progress = (count / 10.0).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 5)]
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Interactive Goal: $count/10", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+              Text("${(progress * 100).toInt()}%", style: const TextStyle(color: Colors.grey)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.grey.shade300,
+            color: Colors.teal,
+            minHeight: 10,
+            borderRadius: BorderRadius.circular(5),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHabitTabs() {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _getHabitsStream(),
       builder: (context, habitSnapshot) {
         if (!habitSnapshot.hasData) return const Center(child: CircularProgressIndicator());
-        
-        final allHabits = habitSnapshot.data!;
+        final allHabits = habitSnapshot.data ?? [];
 
-        return FutureBuilder<List<Map<String, dynamic>>>(
-          future: _getTodayLogs(),
-          builder: (context, logSnapshot) {
-            if (logSnapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator()); 
-            }
-            if (!logSnapshot.hasData) {
-              return const Center(child: Text("Error fetching daily status."));
-            }
+        return StreamBuilder<List<Map<String, dynamic>>>(
+            stream: _getRecentLogsStream(),
+            builder: (context, logSnapshot) {
+              final logs = logSnapshot.data ?? [];
 
-            final completedIds = logSnapshot.data!.map((log) => log['habit_id']).toSet();
-            
-            final unfinishedHabits = allHabits.where((h) => !completedIds.contains(h['id'])).toList();
-            final completedHabits = allHabits.where((h) => completedIds.contains(h['id'])).toList();
+              final completedIds = logs
+                  .where((log) => _isHappeningToday(log['completed_at']))
+                  .map((log) => log['habit_id'])
+                  .toSet();
 
-            return TabBarView(
-              children: [
-                _buildHabitListView(context, unfinishedHabits, isDone: false),
-                _buildHabitListView(context, completedHabits, isDone: true),
-              ],
-            );
-          }
-        );
+              final unfinishedHabits = allHabits.where((h) => !completedIds.contains(h['id'])).toList();
+              final completedHabits = allHabits.where((h) => completedIds.contains(h['id'])).toList();
+
+              return TabBarView(
+                children: [
+                  _buildHabitListView(context, unfinishedHabits, isDone: false),
+                  _buildHabitListView(context, completedHabits, isDone: true),
+                ],
+              );
+            });
       },
     );
   }
-  
+
   Widget _buildHabitListView(BuildContext context, List<Map<String, dynamic>> habits, {required bool isDone}) {
     if (habits.isEmpty) {
-      return Center(child: Text(isDone ? "Good job! All seeds planted." : "Nothing to do today. 🥳"));
+      return Center(child: Text(isDone ? "Keep growing! Do a habit." : "All caught up! Great job. 🌸"));
     }
 
     return ListView.builder(
@@ -169,6 +400,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
       itemBuilder: (context, index) {
         final habit = habits[index];
         final isStandard = habit['type'] == 'standard';
+        final iconData = _getIconForHabit(habit['type'], habit['icon_asset']);
 
         return Card(
           elevation: 4,
@@ -181,80 +413,146 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                 color: isDone ? Colors.green.shade100 : Colors.teal.shade50,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                habit['type'] == 'water_game' ? Icons.water_drop : 
-                habit['type'] == 'meditation_game' ? Icons.self_improvement :
-                habit['type'] == 'walking_game' ? Icons.directions_run : Icons.check,
-                color: isDone ? Colors.green : Colors.teal,
-              ),
+              child: Icon(iconData, color: isDone ? Colors.green : Colors.teal),
             ),
-            title: Text(habit['title'], style: TextStyle(
-              decoration: isDone ? TextDecoration.lineThrough : null,
-              fontWeight: FontWeight.bold
-            )),
-            subtitle: Text(isDone ? "Completed Today" : "Interaction: ${habit['type'].toString().replaceAll('_', ' ')}"),
-            trailing: isDone 
-              ? const Icon(Icons.check_circle, color: Colors.green)
-              : ElevatedButton(
-                  onPressed: () => _startHabit(context, habit),
-                  child: Text(isStandard ? "Mark as Done" : "Start"),
-                ),
+            title: Text(habit['title'],
+                style: TextStyle(decoration: isDone ? TextDecoration.lineThrough : null, fontWeight: FontWeight.bold)),
+            subtitle: Text(isDone ? "Completed Today" : (isStandard ? "Standard Habit" : "Interactive Game")),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!isDone)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                    onPressed: () => _deleteHabit(habit['id'], habit['title']),
+                  ),
+                if (isDone)
+                  const Icon(Icons.check_circle, color: Colors.green)
+                else
+                  ElevatedButton(
+                    onPressed: () => _startHabit(context, habit),
+                    child: Text(isStandard ? "Done" : "Play"),
+                  ),
+              ],
+            ),
           ),
         );
       },
     );
   }
-  
+
+  IconData _getIconForHabit(String type, String? iconAsset) {
+    if (type == 'water_game') return Icons.water_drop;
+    if (type == 'meditation_game') return Icons.self_improvement;
+    if (type == 'walking_game') return Icons.directions_run;
+
+    switch (iconAsset) {
+      case 'book': return Icons.menu_book;
+      case 'gym': return Icons.fitness_center;
+      case 'bed': return Icons.bed;
+      case 'sun': return Icons.sunny;
+      default: return Icons.check_circle_outline;
+    }
+  }
+
   Widget _buildCalendarView() {
+    int totalEvents = 0;
+    _events.forEach((_, list) => totalEvents += list.length);
+
     return Column(
       children: [
-        TableCalendar(
-          firstDay: DateTime.utc(2024, 1, 1),
-          lastDay: DateTime.utc(2030, 12, 31),
-          focusedDay: _focusedDay,
-          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-          onDaySelected: (selectedDay, focusedDay) {
-            setState(() {
-              _selectedDay = selectedDay;
-              _focusedDay = focusedDay;
-            });
-          },
-          calendarStyle: const CalendarStyle(
-            todayDecoration: BoxDecoration(color: Colors.teal, shape: BoxShape.circle),
-            selectedDecoration: BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Card(
+            color: Colors.teal.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Column(
+                    children: [
+                      Text("$totalEvents", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.teal)),
+                      const Text("Habits this Month", style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                  Container(height: 30, width: 1, color: Colors.teal.shade200),
+                  const Column(
+                    children: [
+                      Text("Keep Going!", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal)),
+                      Text("Consistency is key", style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 10),
-        if (_selectedDay != null)
-          Expanded(
-            child: FutureBuilder(
-              future: Supabase.instance.client
-                  .from('habit_logs')
-                  .select('*, habits(title)')
-                  .gte('completed_at', DateFormat('yyyy-MM-dd').format(_selectedDay!))
-                  .lt('completed_at', DateFormat('yyyy-MM-dd').format(_selectedDay!.add(const Duration(days: 1)))),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const SizedBox();
-                final logs = snapshot.data as List;
-                if (logs.isEmpty) return Center(child: Text("No blooms on ${DateFormat.yMMMd().format(_selectedDay!)}."));
-                
-                return ListView.builder(
-                  itemCount: logs.length,
-                  itemBuilder: (context, index) {
-                    final log = logs[index];
-                    return ListTile(
-                      leading: const Icon(Icons.spa, size: 16, color: Colors.pink),
-                      title: Text(log['habits']['title'] ?? 'Habit'),
-                    );
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                TableCalendar(
+                  firstDay: DateTime.utc(2024, 1, 1),
+                  lastDay: DateTime.utc(2030, 12, 31),
+                  focusedDay: _focusedDay,
+                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                  eventLoader: (day) {
+                    final key = DateTime.utc(day.year, day.month, day.day);
+                    return _events[key] ?? [];
                   },
-                );
-              },
+                  onDaySelected: (selectedDay, focusedDay) {
+                    setState(() {
+                      _selectedDay = selectedDay;
+                      _focusedDay = focusedDay;
+                    });
+                  },
+                  onPageChanged: (focusedDay) {
+                    _focusedDay = focusedDay;
+                    _fetchMonthlyEvents();
+                  },
+                  calendarStyle: const CalendarStyle(
+                    todayDecoration: BoxDecoration(color: Colors.teal, shape: BoxShape.circle),
+                    selectedDecoration: BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+                    markerDecoration: BoxDecoration(color: Colors.pinkAccent, shape: BoxShape.circle),
+                  ),
+                ),
+                if (_selectedDay != null) ...[
+                  const Divider(),
+                  FutureBuilder(
+                    future: Supabase.instance.client
+                        .from('habit_logs')
+                        .select('*, habits(title)')
+                        .gte('completed_at', DateFormat('yyyy-MM-dd').format(_selectedDay!))
+                        .lt('completed_at', DateFormat('yyyy-MM-dd').format(_selectedDay!.add(const Duration(days: 1)))),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const SizedBox();
+                      final logs = snapshot.data as List;
+                      if (logs.isEmpty) return Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text("No blooms on ${DateFormat.yMMMd().format(_selectedDay!)}."),
+                      );
+
+                      return Column(
+                        children: logs.map((log) {
+                          return ListTile(
+                            leading: const Icon(Icons.spa, size: 16, color: Colors.pink),
+                            title: Text(log['habits']['title'] ?? 'Habit'),
+                            subtitle: Text(DateFormat('hh:mm a').format(DateTime.parse(log['completed_at']).toLocal())),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  )
+                ]
+              ],
             ),
-          )
+          ),
+        ),
       ],
     );
   }
-  
+
   void _startHabit(BuildContext context, Map<String, dynamic> habit) async {
     final habitType = habit['type'];
     final habitId = habit['id'];
@@ -267,83 +565,164 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     } else if (habitType == 'walking_game') {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => WalkingHabit(habitId: habitId)));
     } else {
-      await Supabase.instance.client.from('habit_logs').insert({
-        'habit_id': habitId,
-        'user_id': userId, 
-        'completed_at': DateTime.now().toIso8601String(),
-      });
-      await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
+      try {
+        await Supabase.instance.client.from('habit_logs').insert({
+          'habit_id': habitId,
+          'user_id': userId,
+          'completed_at': DateTime.now().toUtc().toIso8601String(),
+        });
+        await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Habit marked done!")));
+      } catch(e) {
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
     }
-    
-    setState(() {}); 
+
+    // Force UI Refresh after coming back from game screen
+    setState(() {
+      _fetchMonthlyEvents();
+    });
   }
 
   Future<void> _showAddHabitDialog(BuildContext context) async {
     final controller = TextEditingController();
-    String selectedType = 'water_game'; 
+    String selectedType = 'water_game';
+    String selectedIconAsset = 'check';
     final userId = Supabase.instance.client.auth.currentUser!.id;
+    bool isSaving = false;
 
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder( 
-        builder: (context, setState) {
-          return AlertDialog(
-            title: const Text('Plant a New Habit'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: controller, decoration: const InputDecoration(labelText: "Habit Name")),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedType,
-                  items: const [
-                    DropdownMenuItem(value: 'water_game', child: Text('Pour Water (Interactive)')),
-                    DropdownMenuItem(value: 'meditation_game', child: Text('Meditation (Interactive)')),
-                    DropdownMenuItem(value: 'walking_game', child: Text('Walking (Interactive)')),
-                    DropdownMenuItem(value: 'standard', child: Text('Standard (No Points)')),
-                  ],
-                  onChanged: (val) => setState(() => selectedType = val!),
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+
+            Widget buildIconOption(String key, IconData icon) {
+              final isSelected = selectedIconAsset == key;
+              return GestureDetector(
+                onTap: () => setDialogState(() => selectedIconAsset = key),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.teal.withOpacity(0.2) : Colors.transparent,
+                    border: isSelected ? Border.all(color: Colors.teal, width: 2) : Border.all(color: Colors.grey.shade300),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: isSelected ? Colors.teal : Colors.grey),
                 ),
-                const SizedBox(height: 10),
-                const Text("Note: Only Interactive habits earn Leaderboard points!", style: TextStyle(fontSize: 12, color: Colors.grey)),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              ElevatedButton(
-                onPressed: () async {
-                  if (controller.text.isNotEmpty) {
-                    await Supabase.instance.client.from('habits').insert({
-                      'user_id': userId,
-                      'title': controller.text,
-                      'type': selectedType, 
-                    });
-                    if (context.mounted) {
-                      Navigator.pop(context);
-                      this.setState(() {}); 
-                    }
-                  }
-                },
-                child: const Text('Plant'),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('Plant a New Habit'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(
+                            labelText: "Habit Name",
+                            border: OutlineInputBorder()
+                        )
+                    ),
+                    const SizedBox(height: 16),
+                    const Text("Habit Type:", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: selectedType,
+                      decoration: const InputDecoration(border: OutlineInputBorder()),
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'water_game', child: Text('Interactive: Pour Water')),
+                        DropdownMenuItem(value: 'meditation_game', child: Text('Interactive: Meditation')),
+                        DropdownMenuItem(value: 'walking_game', child: Text('Interactive: Walking')),
+                        DropdownMenuItem(value: 'standard', child: Text('Standard: Checkbox')),
+                      ],
+                      onChanged: (val) => setDialogState(() => selectedType = val!),
+                    ),
+
+                    if (selectedType == 'standard') ...[
+                      const SizedBox(height: 20),
+                      const Text("Choose Icon:", style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 15,
+                        runSpacing: 10,
+                        children: [
+                          buildIconOption('check', Icons.check_circle_outline),
+                          buildIconOption('book', Icons.menu_book),
+                          buildIconOption('gym', Icons.fitness_center),
+                          buildIconOption('bed', Icons.bed),
+                          buildIconOption('sun', Icons.sunny),
+                        ],
+                      )
+                    ],
+                  ],
+                ),
               ),
-            ],
-          );
-        }
+              actions: [
+                TextButton(
+                    onPressed: isSaving ? null : () => Navigator.pop(context),
+                    child: const Text('Cancel')
+                ),
+                ElevatedButton(
+                  onPressed: isSaving ? null : () async {
+                    if (controller.text.isEmpty) return;
+
+                    setDialogState(() => isSaving = true);
+
+                    try {
+                      await Supabase.instance.client.from('habits').insert({
+                        'user_id': userId,
+                        'title': controller.text,
+                        'type': selectedType,
+                        'icon_asset': selectedType == 'standard' ? selectedIconAsset : null,
+                      });
+
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        this.setState(() {});
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Seed planted successfully! 🌱"))
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text("Failed to plant: ${e.toString().split('\n').first}"),
+                              backgroundColor: Colors.red,
+                            )
+                        );
+                        setDialogState(() => isSaving = false);
+                      }
+                    }
+                  },
+                  child: isSaving
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Plant'),
+                ),
+              ],
+            );
+          }
       ),
     );
   }
 }
 
 class BetterGardenPainter extends CustomPainter {
-  final int totalPoints; 
+  final int totalPoints;
   final int currentStreak;
   final double animationValue;
+  final bool isQuotaMet;
 
   BetterGardenPainter({
-    this.totalPoints = 0, 
+    this.totalPoints = 0,
     required this.currentStreak,
     this.animationValue = 0.0,
-  }); 
+    this.isQuotaMet = false,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -355,7 +734,9 @@ class BetterGardenPainter extends CustomPainter {
     final Gradient gradient = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      colors: [Colors.lightBlue.shade100, Colors.white],
+      colors: isQuotaMet
+          ? [Colors.orange.shade100, Colors.white]
+          : [Colors.lightBlue.shade100, Colors.white],
     );
     paint.shader = gradient.createShader(rect);
     canvas.drawRect(rect, paint);
@@ -370,11 +751,11 @@ class BetterGardenPainter extends CustomPainter {
     hillPath.lineTo(size.width, size.height);
     canvas.drawPath(hillPath, paint);
 
-    int flowerCount = min(totalPoints ~/ 10, 15);
+    int flowerCount = min(totalPoints, 25);
 
     for (int i = 0; i < flowerCount; i++) {
-      double x = size.width * (0.1 + (i % 5) * 0.15); 
-      double y = size.height - 30 - (random.nextDouble() * 20); 
+      double x = size.width * (0.1 + (i % 5) * 0.15);
+      double y = size.height - 30 - (random.nextDouble() * 20);
 
       if (i >= 5) x += size.width * 0.05;
       if (i >= 10) x -= size.width * 0.1;
@@ -385,7 +766,7 @@ class BetterGardenPainter extends CustomPainter {
 
   void _drawFlower(Canvas canvas, double x, double y, Color color, bool isGlowing) {
     final paint = Paint()..style = PaintingStyle.fill;
-    
+
     if (isGlowing) {
       double glowRadius = 12.0 + (animationValue * 6.0);
       double glowOpacity = 0.4 + (animationValue * 0.4);
@@ -407,15 +788,16 @@ class BetterGardenPainter extends CustomPainter {
       double petalY = (y - 40) + sin(angle) * 10;
       canvas.drawCircle(Offset(petalX, petalY), 6, paint);
     }
-    
+
     paint.color = Colors.yellow;
     canvas.drawCircle(Offset(x, y - 40), 4, paint);
   }
 
   @override
   bool shouldRepaint(covariant BetterGardenPainter oldDelegate) {
-     return oldDelegate.totalPoints != totalPoints || 
-            oldDelegate.currentStreak != currentStreak ||
-            oldDelegate.animationValue != animationValue;
+    return oldDelegate.totalPoints != totalPoints ||
+        oldDelegate.currentStreak != currentStreak ||
+        oldDelegate.animationValue != animationValue ||
+        oldDelegate.isQuotaMet != isQuotaMet;
   }
 }

@@ -13,8 +13,8 @@ class MeditationGame extends StatefulWidget {
 }
 
 class _MeditationGameState extends State<MeditationGame> with SingleTickerProviderStateMixin {
-  final int _targetSeconds = 15;
-  
+  final int _targetSeconds = 60;
+
   double _progress = 0.0;
   bool _isMoving = false;
   bool _completed = false;
@@ -31,7 +31,6 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
   void _startSensor() {
     _accelSubscription = userAccelerometerEventStream().listen((event) {
       double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
-      
       bool currentlyMoving = magnitude > 0.3;
 
       if (currentlyMoving != _isMoving) {
@@ -69,28 +68,29 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
     final userId = Supabase.instance.client.auth.currentUser!.id;
 
     try {
-        await Supabase.instance.client.from('habit_logs').insert({
-            'habit_id': widget.habitId,
-            'user_id': userId,
-            'completed_at': DateTime.now().toIso8601String(),
-        });
-        
-        await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
+      // FIXED: Added .toUtc()
+      await Supabase.instance.client.from('habit_logs').insert({
+        'habit_id': widget.habitId,
+        'user_id': userId,
+        'completed_at': DateTime.now().toUtc().toIso8601String(),
+      });
 
-        if (mounted) {
-             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Points earned!")));
-        }
+      await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Points earned!")));
+      }
     } catch (e) {
-        print('Database Update Error: $e');
+      print('Database Update Error: $e');
     }
-    
+
     if (mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => AlertDialog(
           title: const Text("Zen Achieved 🌸"),
-          content: const Text("You remained still and mindful."),
+          content: const Text("You remained still and mindful for 60 seconds."),
           actions: [
             TextButton(
               onPressed: () {
@@ -118,6 +118,9 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
     final screenSize = MediaQuery.of(context).size;
     final canvasSize = (screenSize.height < screenSize.width ? screenSize.height : screenSize.width) * 0.6;
 
+    int secondsRemaining = ((1.0 - _progress) * _targetSeconds).ceil();
+    if (secondsRemaining < 0) secondsRemaining = 0;
+
     return Scaffold(
       backgroundColor: _isMoving ? Colors.red.shade50 : Colors.teal.shade50,
       appBar: AppBar(title: const Text("Hold Still")),
@@ -137,20 +140,22 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
                   ),
                 ),
                 const SizedBox(height: 40),
-                
+
                 SizedBox(
                   height: canvasSize,
                   width: canvasSize,
                   child: CustomPaint(
                     painter: MeditationTimerPainter(
-                      progress: _progress, 
-                      isMoving: _isMoving
+                        progress: _progress,
+                        isMoving: _isMoving
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 40),
-                Text("${((1.0 - _progress) * _targetSeconds).ceil()} seconds remaining"),
+                Text("$secondsRemaining seconds remaining", style: const TextStyle(fontSize: 20)),
+                const SizedBox(height: 10),
+                const Text("Hold your phone perfectly still.", style: TextStyle(color: Colors.grey)),
               ],
             ),
           ),
@@ -192,7 +197,7 @@ class MeditationTimerPainter extends CustomPainter {
     );
 
     Paint dotPaint = Paint()..color = isMoving ? Colors.redAccent : Colors.tealAccent;
-    
+
     double jitterX = isMoving ? (Random().nextDouble() * 20 - 10) : 0;
     double jitterY = isMoving ? (Random().nextDouble() * 20 - 10) : 0;
 

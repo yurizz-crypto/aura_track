@@ -13,7 +13,8 @@ class WalkingHabit extends StatefulWidget {
 }
 
 class _WalkingHabitState extends State<WalkingHabit> {
-  final int _targetSteps = 50; 
+  final int _targetSteps = 34;
+
   int _currentStepsCount = 0;
   int? _startStepCount;
   bool _completed = false;
@@ -69,9 +70,9 @@ class _WalkingHabitState extends State<WalkingHabit> {
 
   void _startPedometer() {
     _stepCountSubscription = Pedometer.stepCountStream.listen(
-      (StepCount event) {
+          (StepCount event) {
         if (_completed) return;
-        
+
         setState(() {
           if (_startStepCount == null && _stabilizationTimer == null) {
             _isInitializing = true;
@@ -83,7 +84,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
           }
 
           if (_startStepCount != null && !_isInitializing) {
-            _currentStepsCount = event.steps - _startStepCount!; 
+            _currentStepsCount = event.steps - _startStepCount!;
           }
 
           if (_currentStepsCount >= _targetSteps) {
@@ -120,16 +121,17 @@ class _WalkingHabitState extends State<WalkingHabit> {
     _completed = true;
     _stepCountSubscription.cancel();
     _stabilizationTimer?.cancel();
-    
+
     final userId = Supabase.instance.client.auth.currentUser!.id;
 
     try {
+      // FIXED: Added .toUtc()
       await Supabase.instance.client.from('habit_logs').insert({
         'habit_id': widget.habitId,
         'user_id': userId,
-        'completed_at': DateTime.now().toIso8601String(),
+        'completed_at': DateTime.now().toUtc().toIso8601String(),
       });
-      
+
       await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
 
     } catch (e) {
@@ -142,12 +144,12 @@ class _WalkingHabitState extends State<WalkingHabit> {
         barrierDismissible: false,
         builder: (context) => AlertDialog(
           title: const Text("Goal Achieved! 🏃"),
-          content: const Text("You walked 20 meters and earned a point!"),
+          content: const Text("You walked 25 meters and earned a point!"),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop(); 
-                Navigator.of(context).pop(); 
+                Navigator.of(context).pop();
+                Navigator.of(context).pop();
               },
               child: const Text("Done"),
             )
@@ -168,7 +170,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Walk 20 Meters (27 Steps)")),
+      appBar: AppBar(title: const Text("Walk 25 Meters (~34 Steps)")),
       body: SingleChildScrollView(
         child: Center(
           child: Padding(
@@ -179,13 +181,14 @@ class _WalkingHabitState extends State<WalkingHabit> {
                 const Icon(Icons.directions_run, size: 80, color: Colors.teal),
                 const SizedBox(height: 20),
                 Text(
-                  _currentStepsCount == -1 
-                    ? "Sensor Error - Check Permissions" 
-                    : _completed ? "Completed!" 
-                    : _permissionGranted 
+                  _currentStepsCount == -1
+                      ? "Sensor Error - Check Permissions"
+                      : _completed ? "Completed!"
+                      : _permissionGranted
                       ? (_isInitializing ? "Initializing Sensor..." : "Keep Walking!")
                       : "Grant Permission to Start",
                   style: Theme.of(context).textTheme.headlineMedium,
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
                 Text(
@@ -194,19 +197,19 @@ class _WalkingHabitState extends State<WalkingHabit> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  _permissionGranted 
-                    ? (_isInitializing 
-                        ? "Warming up (0.5s)..." 
-                        : "Walk with phone in pocket/hand (~0.75m per step).") 
-                    : "Tap 'Start' to request permission.",
-                  style: TextStyle(color: Colors.grey),
+                  _permissionGranted
+                      ? (_isInitializing
+                      ? "Warming up (0.5s)..."
+                      : "Walk with phone in pocket/hand.")
+                      : "Tap 'Start' to request permission.",
+                  style: const TextStyle(color: Colors.grey),
                 ),
-                
+
                 const SizedBox(height: 40),
                 LinearProgressIndicator(
-                  value: _isInitializing 
-                    ? null
-                    : (_currentStepsCount > 0 ? _currentStepsCount : 0) / _targetSteps,
+                  value: _isInitializing
+                      ? null
+                      : (_currentStepsCount > 0 ? _currentStepsCount : 0) / _targetSteps,
                   minHeight: 15,
                   backgroundColor: Colors.teal.shade50,
                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
