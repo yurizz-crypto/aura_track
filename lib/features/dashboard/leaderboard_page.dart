@@ -31,7 +31,7 @@ class LeaderboardPage extends StatelessWidget {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                
+
                 if (snapshot.hasError) {
                   return Center(child: Text('Error loading leaderboard: ${snapshot.error}'));
                 }
@@ -48,29 +48,52 @@ class LeaderboardPage extends StatelessWidget {
                     final user = sortedUsers[index];
                     final isMe = user['id'] == currentUserId;
                     final isHotStreak = (user['current_streak'] ?? 0) >= 7;
-                    
+                    final avatarUrl = user['avatar_url'];
+
                     return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: index == 0 ? Colors.amber : Colors.teal,
-                        child: Text("#${index + 1}"),
+                      // FIXED: Leading contains Row with Rank Circle AND Avatar
+                      leading: SizedBox(
+                        width: 90, // Fixed width to fit both circles
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            // 1. The "Trophy" / Rank Circle
+                            CircleAvatar(
+                              radius: 14, // Slightly smaller to fit nicely
+                              backgroundColor: index == 0 ? Colors.amber : Colors.teal,
+                              foregroundColor: Colors.white,
+                              child: Text(
+                                "#${index + 1}",
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const SizedBox(width: 8), // Gap between rank and avatar
+
+                            // 2. The User Avatar
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: Colors.grey.shade200,
+                              backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                              child: avatarUrl == null
+                                  ? Text(
+                                (user['username'] ?? "A")[0].toUpperCase(),
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+                              )
+                                  : null,
+                            ),
+                          ],
+                        ),
                       ),
                       title: Text(
                         user['username'] ?? "Anonymous Gardener",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: isHotStreak ? Colors.orange : Colors.black,
-                          shadows: isHotStreak ? [
-                            BoxShadow(
-                              color: Colors.amber.withOpacity(0.8),
-                              blurRadius: 5,
-                              spreadRadius: 2,
-                            ),
-                          ] : null,
+                          color: isHotStreak ? Colors.deepOrange : Colors.black,
                         ),
                       ),
                       subtitle: Text("${user['points'] ?? 0} flowers bloomed"),
-                      tileColor: isMe ? Colors.teal.shade100 : null,
-                      trailing: index < 3 ? const Icon(Icons.emoji_events, color: Colors.orange) : null,
+                      tileColor: isMe ? Colors.teal.shade50 : null,
+                      trailing: index < 3 ? const Icon(Icons.emoji_events, color: Colors.amber) : null,
                     );
                   },
                 );
