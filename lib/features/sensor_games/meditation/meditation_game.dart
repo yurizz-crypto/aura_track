@@ -13,11 +13,9 @@ class MeditationGame extends StatefulWidget {
 }
 
 class _MeditationGameState extends State<MeditationGame> with SingleTickerProviderStateMixin {
-  // Settings
-  final int _targetSeconds = 15; // Short for demo purposes (Real app: 60s)
+  final int _targetSeconds = 15;
   
-  // State
-  double _progress = 0.0; // 0.0 to 1.0
+  double _progress = 0.0;
   bool _isMoving = false;
   bool _completed = false;
   Timer? _timer;
@@ -31,13 +29,9 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
   }
 
   void _startSensor() {
-    // RUBRIC: SENSOR (Accelerometer)
-    // We use UserAccelerometerEvent because it ignores gravity (easier to detect shakes)
     _accelSubscription = userAccelerometerEventStream().listen((event) {
-      // Calculate total movement magnitude
       double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       
-      // Threshold: If movement > 0.3, the user is not still enough
       bool currentlyMoving = magnitude > 0.3;
 
       if (currentlyMoving != _isMoving) {
@@ -49,15 +43,12 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
   }
 
   void _startTimer() {
-    // Timer ticks every 100ms
     _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (_completed) {
         timer.cancel();
         return;
       }
 
-      // RUBRIC: LOGIC
-      // Only progress if user is NOT moving
       if (!_isMoving) {
         setState(() {
           _progress += (0.1 / _targetSeconds);
@@ -75,12 +66,24 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
     _timer?.cancel();
     _accelSubscription?.cancel();
 
-    // Save to DB
-    await Supabase.instance.client.from('habit_logs').insert({
-      'habit_id': widget.habitId,
-      'completed_at': DateTime.now().toIso8601String(),
-    });
+    final userId = Supabase.instance.client.auth.currentUser!.id;
 
+    try {
+        await Supabase.instance.client.from('habit_logs').insert({
+            'habit_id': widget.habitId,
+            'user_id': userId,
+            'completed_at': DateTime.now().toIso8601String(),
+        });
+        
+        await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
+
+        if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Points earned!")));
+        }
+    } catch (e) {
+        print('Database Update Error: $e');
+    }
+    
     if (mounted) {
       showDialog(
         context: context,
@@ -99,6 +102,7 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
           ],
         ),
       );
+      await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
     }
   }
 
@@ -111,45 +115,51 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final canvasSize = (screenSize.height < screenSize.width ? screenSize.height : screenSize.width) * 0.6;
+
     return Scaffold(
       backgroundColor: _isMoving ? Colors.red.shade50 : Colors.teal.shade50,
       appBar: AppBar(title: const Text("Hold Still")),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _isMoving ? "Too much movement!" : "Breathe...",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: _isMoving ? Colors.red : Colors.teal,
-              ),
-            ),
-            const SizedBox(height: 40),
-            
-            // RUBRIC: CANVAS (Visual Timer)
-            SizedBox(
-              height: 250,
-              width: 250,
-              child: CustomPaint(
-                painter: MeditationTimerPainter(
-                  progress: _progress, 
-                  isMoving: _isMoving
+      body: SingleChildScrollView(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _isMoving ? "Too much movement!" : "Breathe...",
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: _isMoving ? Colors.red : Colors.teal,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 40),
+                
+                SizedBox(
+                  height: canvasSize,
+                  width: canvasSize,
+                  child: CustomPaint(
+                    painter: MeditationTimerPainter(
+                      progress: _progress, 
+                      isMoving: _isMoving
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 40),
+                Text("${((1.0 - _progress) * _targetSeconds).ceil()} seconds remaining"),
+              ],
             ),
-            
-            const SizedBox(height: 40),
-            Text("${((1.0 - _progress) * _targetSeconds).ceil()} seconds remaining"),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-// RUBRIC: CANVAS IMPLEMENTATION
 class MeditationTimerPainter extends CustomPainter {
   final double progress;
   final bool isMoving;
@@ -161,31 +171,26 @@ class MeditationTimerPainter extends CustomPainter {
     Offset center = Offset(size.width / 2, size.height / 2);
     double radius = size.width / 2;
 
-    // 1. Background Circle
     Paint bgPaint = Paint()
       ..color = Colors.grey.shade300
       ..style = PaintingStyle.stroke
       ..strokeWidth = 10;
     canvas.drawCircle(center, radius, bgPaint);
 
-    // 2. Progress Arc
     Paint progressPaint = Paint()
       ..color = isMoving ? Colors.red : Colors.teal
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 10;
 
-    // Draw arc from -90 degrees (top)
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
-      -pi / 2, // Start at top
-      2 * pi * progress, // Sweep angle
+      -pi / 2,
+      2 * pi * progress,
       false,
       progressPaint,
     );
 
-    // 3. Center Dot (Visual feedback for stillness)
-    // If moving, the dot jitters randomly to visualize chaos
     Paint dotPaint = Paint()..color = isMoving ? Colors.redAccent : Colors.tealAccent;
     
     double jitterX = isMoving ? (Random().nextDouble() * 20 - 10) : 0;

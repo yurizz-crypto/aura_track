@@ -64,6 +64,8 @@ ios/Runner/GeneratedPluginRegistrant.*
 *.swp
 *.swo
 
+.history/
+
 # OS generated
 .DS_Store
 .DS_Store?

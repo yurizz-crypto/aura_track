@@ -14,6 +14,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
 
   Future<void> _signIn() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       await Supabase.instance.client.auth.signInWithPassword(
@@ -21,28 +22,34 @@ class _LoginPageState extends State<LoginPage> {
         password: _passwordController.text.trim(),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
     }
+    if (!mounted) return;
     setState(() => _isLoading = false);
   }
 
   Future<void> _signUp() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       await Supabase.instance.client.auth.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
          const SnackBar(content: Text('Account Created! Please login.')),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
     }
+    if (!mounted) return;
     setState(() => _isLoading = false);
   }
 
@@ -54,11 +61,12 @@ class _LoginPageState extends State<LoginPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Satisfies Rubric: Images/Icons
-            const Icon(Icons.spa, size: 80, color: Colors.teal), 
+            Image.asset(
+              'lib/assets/images/aura_logo.png',
+              height: 250,
+              width: 250,
+            ),
             const SizedBox(height: 20),
-            const Text('AuraTrack', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 40),
             
             TextField(
               controller: _emailController,
@@ -72,7 +80,6 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 24),
 
-            // Satisfies Rubric: Buttons
             _isLoading 
                ? const CircularProgressIndicator()
                : Column(

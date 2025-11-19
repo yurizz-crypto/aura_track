@@ -4,6 +4,28 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
 
+  Future<void> _confirmLogout(BuildContext context) async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout Admin?'),
+        content: const Text('Are you sure you want to leave the admin console?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Stay')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true) {
+      await Supabase.instance.client.auth.signOut();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -13,7 +35,7 @@ class AdminDashboard extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () => Supabase.instance.client.auth.signOut(),
+            onPressed: () => _confirmLogout(context),
           )
         ],
       ),
@@ -25,9 +47,7 @@ class AdminDashboard extends StatelessWidget {
             const Text("System Overview", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             
-            // Analytics Card
             FutureBuilder(
-              // Admin-only query: Fetch ALL profiles (forbidden for normal users)
               future: Supabase.instance.client.from('profiles').select(), 
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const CircularProgressIndicator();
@@ -59,7 +79,6 @@ class AdminDashboard extends StatelessWidget {
               title: const Text("Create Global Challenge"),
               subtitle: const Text("Deploy a new habit template to all users"),
               onTap: () {
-                // Placeholder for admin action
               },
             ),
           ],
