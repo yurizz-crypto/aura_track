@@ -1,28 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/common/widgets/confirmation_dialog.dart';
+import 'package:aura_track/core/services/auth_service.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
 
-  Future<void> _confirmLogout(BuildContext context) async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout Admin?'),
-        content: const Text('Are you sure you want to leave the admin console?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Stay')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
+  Future<void> _handleLogout(BuildContext context) async {
+    final confirm = await CustomDialogs.showConfirmDialog(
+      context,
+      title: 'Logout Admin?',
+      content: 'Are you sure you want to leave the admin console?',
+      confirmText: 'Logout',
     );
 
-    if (shouldLogout == true) {
-      await Supabase.instance.client.auth.signOut();
+    if (confirm) {
+      await AuthService().signOut();
     }
   }
 
@@ -35,7 +28,7 @@ class AdminDashboard extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () => _confirmLogout(context),
+            onPressed: () => _handleLogout(context),
           )
         ],
       ),
@@ -46,13 +39,14 @@ class AdminDashboard extends StatelessWidget {
           children: [
             const Text("System Overview", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
-            
+
+            // We can leave this direct call or move it to a UserRepository later
             FutureBuilder(
-              future: Supabase.instance.client.from('profiles').select(), 
+              future: Supabase.instance.client.from('profiles').select(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const CircularProgressIndicator();
                 final users = snapshot.data as List;
-                
+
                 return Card(
                   color: Colors.blueGrey.shade50,
                   child: Padding(
@@ -69,16 +63,17 @@ class AdminDashboard extends StatelessWidget {
                 );
               },
             ),
-            
+
             const SizedBox(height: 30),
             const Text("Content Management", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
-            
+
             ListTile(
               leading: const Icon(Icons.add_box),
               title: const Text("Create Global Challenge"),
               subtitle: const Text("Deploy a new habit template to all users"),
               onTap: () {
+                // Navigation to create challenge page
               },
             ),
           ],

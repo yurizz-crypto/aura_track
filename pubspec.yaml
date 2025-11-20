@@ -22,6 +22,7 @@ dependencies:
   table_calendar: ^3.0.9
   uuid: ^4.0.0
   cupertino_icons: ^1.0.8
+  flutter_dotenv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -46,5 +47,6 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
+    - .env
     - lib/assets/sound/
     - lib/assets/images/

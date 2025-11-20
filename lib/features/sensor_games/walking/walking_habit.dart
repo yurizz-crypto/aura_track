@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pedometer/pedometer.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:aura_track/core/services/habit_repository.dart';
+import 'package:aura_track/core/services/auth_service.dart';
+import 'package:aura_track/common/widgets/confirmation_dialog.dart';
 
 class WalkingHabit extends StatefulWidget {
   final String habitId;
@@ -14,7 +16,6 @@ class WalkingHabit extends StatefulWidget {
 
 class _WalkingHabitState extends State<WalkingHabit> {
   final int _targetSteps = 34;
-
   int _currentStepsCount = 0;
   int? _startStepCount;
   bool _completed = false;
@@ -22,6 +23,9 @@ class _WalkingHabitState extends State<WalkingHabit> {
   bool _isInitializing = true;
   late StreamSubscription<StepCount> _stepCountSubscription;
   Timer? _stabilizationTimer;
+
+  final _habitRepo = HabitRepository();
+  final _authService = AuthService();
 
   @override
   void initState() {
@@ -39,9 +43,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
         _permissionGranted = false;
         _currentStepsCount = -1;
       });
-      if (mounted) {
-        _showPermissionDialog();
-      }
+      if (mounted) _showPermissionDialog();
     }
   }
 
@@ -50,7 +52,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Permission Needed"),
-        content: const Text("Enable 'Physical Activity' permission in app settings to track steps."),
+        content: const Text("Enable 'Physical Activity' permission to track steps."),
         actions: [
           TextButton(
             onPressed: () {
@@ -72,7 +74,6 @@ class _WalkingHabitState extends State<WalkingHabit> {
     _stepCountSubscription = Pedometer.stepCountStream.listen(
           (StepCount event) {
         if (_completed) return;
-
         setState(() {
           if (_startStepCount == null && _stabilizationTimer == null) {
             _isInitializing = true;
@@ -82,11 +83,9 @@ class _WalkingHabitState extends State<WalkingHabit> {
               _stabilizationTimer?.cancel();
             });
           }
-
           if (_startStepCount != null && !_isInitializing) {
             _currentStepsCount = event.steps - _startStepCount!;
           }
-
           if (_currentStepsCount >= _targetSteps) {
             _finishGame();
           }
@@ -98,7 +97,6 @@ class _WalkingHabitState extends State<WalkingHabit> {
           _isInitializing = false;
           _stepCountSubscription.cancel();
         });
-        print('Pedometer Error: $error');
       },
       cancelOnError: true,
     );
@@ -111,9 +109,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
       _isInitializing = true;
       _stabilizationTimer?.cancel();
     });
-    if (_permissionGranted) {
-      _startPedometer();
-    }
+    if (_permissionGranted) _startPedometer();
   }
 
   Future<void> _finishGame() async {
@@ -122,42 +118,23 @@ class _WalkingHabitState extends State<WalkingHabit> {
     _stepCountSubscription.cancel();
     _stabilizationTimer?.cancel();
 
-    final userId = Supabase.instance.client.auth.currentUser!.id;
+    final userId = _authService.currentUserId;
+    if (userId == null) return;
 
     try {
-      // FIXED: Added .toUtc()
-      await Supabase.instance.client.from('habit_logs').insert({
-        'habit_id': widget.habitId,
-        'user_id': userId,
-        'completed_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      await _habitRepo.completeHabitInteraction(widget.habitId, userId);
 
-      await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
-
+      if (mounted) {
+        await CustomDialogs.showSuccessDialog(
+            context,
+            title: "Goal Achieved! 🏃",
+            content: "You walked 25 meters and earned a point!"
+        );
+        if (mounted) Navigator.of(context).pop();
+      }
     } catch (e) {
-      print('Database Update Error: $e');
+      print('Game Error: $e');
     }
-
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text("Goal Achieved! 🏃"),
-          content: const Text("You walked 25 meters and earned a point!"),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).pop();
-              },
-              child: const Text("Done"),
-            )
-          ],
-        ),
-      );
-    }
-    await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
   }
 
   @override
@@ -183,8 +160,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
                 Text(
                   _currentStepsCount == -1
                       ? "Sensor Error - Check Permissions"
-                      : _completed ? "Completed!"
-                      : _permissionGranted
+                      : _completed ? "Completed!" : _permissionGranted
                       ? (_isInitializing ? "Initializing Sensor..." : "Keep Walking!")
                       : "Grant Permission to Start",
                   style: Theme.of(context).textTheme.headlineMedium,
@@ -195,16 +171,6 @@ class _WalkingHabitState extends State<WalkingHabit> {
                   "Steps: ${_currentStepsCount > 0 ? _currentStepsCount : 0} / $_targetSteps",
                   style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  _permissionGranted
-                      ? (_isInitializing
-                      ? "Warming up (0.5s)..."
-                      : "Walk with phone in pocket/hand.")
-                      : "Tap 'Start' to request permission.",
-                  style: const TextStyle(color: Colors.grey),
-                ),
-
                 const SizedBox(height: 40),
                 LinearProgressIndicator(
                   value: _isInitializing

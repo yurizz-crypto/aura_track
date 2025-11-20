@@ -2,11 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/core/services/habit_repository.dart';
+import 'package:aura_track/core/services/auth_service.dart';
+import 'package:aura_track/common/widgets/confirmation_dialog.dart';
 
 class WaterPourGame extends StatefulWidget {
   final String habitId;
-
   const WaterPourGame({super.key, required this.habitId});
 
   @override
@@ -16,13 +17,15 @@ class WaterPourGame extends StatefulWidget {
 class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProviderStateMixin {
   StreamSubscription<AccelerometerEvent>? _accelSubscription;
   double _tiltX = 0.0;
-
   double _fillLevel = 0.0;
   bool _isPouring = false;
   bool _completed = false;
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   final AudioPlayer _effectPlayer = AudioPlayer();
+
+  final _habitRepo = HabitRepository();
+  final _authService = AuthService();
 
   @override
   void initState() {
@@ -58,15 +61,13 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
   Future<void> _playPourSound() async {
     try {
       await _effectPlayer.play(AssetSource('water_flow.mp3'));
-    } catch(e) {
-      // Nothing
-    }
+    } catch(e) { /* ignore */ }
   }
 
   Future<void> _stopPourSound() async {
     try {
       await _effectPlayer.stop();
-    } catch(e) {}
+    } catch(e) { /* ignore */ }
   }
 
   void _fillGlass() {
@@ -90,46 +91,27 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
     _accelSubscription?.cancel();
     _stopPourSound();
 
-    final userId = Supabase.instance.client.auth.currentUser!.id;
+    final userId = _authService.currentUserId;
+    if (userId == null) return;
 
     try {
-      await Supabase.instance.client.from('habit_logs').insert({
-        'habit_id': widget.habitId,
-        'user_id': userId,
-        'completed_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      await _habitRepo.completeHabitInteraction(widget.habitId, userId);
 
-      await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
+      try {
+        await _audioPlayer.play(AssetSource('success.mp3'));
+      } catch (e) { /* ignore */ }
+
+      if (mounted) {
+        await CustomDialogs.showSuccessDialog(
+            context,
+            title: "Hydrated! 💧",
+            content: "Good job keeping your habit and earning points!"
+        );
+        if (mounted) Navigator.of(context).pop();
+      }
     } catch (e) {
-      print('Something went wrong. Try again later.');
+      print('Error finishing game: $e');
     }
-
-    try {
-      await _audioPlayer.play(AssetSource('success.mp3'));
-    } catch (e) {
-      // Nothing
-    }
-
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text("Hydrated! 💧"),
-          content: const Text("Good job keeping your habit and earning points!"),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).pop();
-              },
-              child: const Text("Finish"),
-            )
-          ],
-        ),
-      );
-    }
-    await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
   }
 
   @override
@@ -188,11 +170,7 @@ class WaterGlassPainter extends CustomPainter {
   final bool isPouring;
   final double tiltX;
 
-  WaterGlassPainter({
-    required this.fillLevel,
-    required this.isPouring,
-    required this.tiltX
-  });
+  WaterGlassPainter({required this.fillLevel, required this.isPouring, required this.tiltX});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -210,19 +188,16 @@ class WaterGlassPainter extends CustomPainter {
     glassPath.lineTo(30, size.height);
     glassPath.lineTo(size.width - 30, size.height);
     glassPath.lineTo(size.width - 10, 0);
-
     canvas.drawPath(glassPath, glassPaint);
 
     if (fillLevel > 0) {
       double waterHeight = size.height * fillLevel;
       double topY = size.height - waterHeight;
-
       Path waterPath = Path();
       waterPath.moveTo(10 + (20 * (1-fillLevel)), topY);
       waterPath.lineTo(30, size.height);
       waterPath.lineTo(size.width - 30, size.height);
       waterPath.lineTo(size.width - 10 - (20 * (1-fillLevel)), topY);
-
       canvas.drawPath(waterPath, waterPaint);
     }
 
@@ -235,12 +210,7 @@ class WaterGlassPainter extends CustomPainter {
 
       double startX = tiltX > 0 ? 0 : size.width;
       double endX = size.width / 2;
-
-      canvas.drawLine(
-          Offset(startX, -100),
-          Offset(endX, size.height - (size.height * fillLevel)),
-          streamPaint
-      );
+      canvas.drawLine(Offset(startX, -100), Offset(endX, size.height - (size.height * fillLevel)), streamPaint);
     }
   }
 

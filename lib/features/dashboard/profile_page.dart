@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/common/utils/app_utils.dart';
+import 'package:aura_track/common/widgets/custom_text_field.dart';
+import 'package:aura_track/common/widgets/user_avatar.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -12,9 +15,8 @@ class _ProfilePageState extends State<ProfilePage> {
   final _usernameController = TextEditingController();
   bool _isLoading = false;
   int _currentStreak = 0;
-  String? _avatarUrl; // To store the current avatar
+  String? _avatarUrl;
 
-  // Pre-defined list of "Gardener" style avatars (using DiceBear API for zero-config images)
   final List<String> _avatarOptions = [
     'https://api.dicebear.com/7.x/adventurer/png?seed=Felix',
     'https://api.dicebear.com/7.x/adventurer/png?seed=Aneka',
@@ -34,38 +36,37 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadProfile() async {
     final userId = Supabase.instance.client.auth.currentUser!.id;
-    // UPDATED: Select avatar_url as well
     final data = await Supabase.instance.client
         .from('profiles')
         .select('username, current_streak, avatar_url')
         .eq('id', userId)
         .single();
 
-    setState(() {
-      _usernameController.text = data['username'] ?? '';
-      _currentStreak = data['current_streak'] ?? 0;
-      _avatarUrl = data['avatar_url'];
-    });
+    if (mounted) {
+      setState(() {
+        _usernameController.text = data['username'] ?? '';
+        _currentStreak = data['current_streak'] ?? 0;
+        _avatarUrl = data['avatar_url'];
+      });
+    }
   }
 
   Future<void> _updateProfile() async {
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
-      // UPDATED: Update avatar_url
       await Supabase.instance.client.from('profiles').update({
         'username': _usernameController.text,
         'avatar_url': _avatarUrl,
       }).eq('id', userId);
 
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile Updated!")));
+      if (mounted) AppUtils.showSnackBar(context, "Profile Updated!");
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Something went wrong. Try again later.")));
+      if (mounted) AppUtils.showSnackBar(context, "Update failed.", isError: true);
     }
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
-  // NEW: Modal to select an avatar
   void _showAvatarSelection() {
     showModalBottomSheet(
       context: context,
@@ -82,9 +83,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 height: 200,
                 child: GridView.builder(
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
+                    crossAxisCount: 4, crossAxisSpacing: 10, mainAxisSpacing: 10,
                   ),
                   itemCount: _avatarOptions.length,
                   itemBuilder: (context, index) {
@@ -101,9 +100,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           shape: BoxShape.circle,
                           color: Colors.white,
                         ),
-                        child: ClipOval(
-                          child: Image.network(url),
-                        ),
+                        child: ClipOval(child: Image.network(url)),
                       ),
                     );
                   },
@@ -130,27 +127,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 children: [
                   const SizedBox(height: 20),
 
-                  // UPDATED: Tappable Avatar that shows image or default icon
-                  GestureDetector(
+                  UserAvatar(
+                    avatarUrl: _avatarUrl,
+                    username: _usernameController.text,
+                    radius: 60,
+                    showEditIcon: true,
                     onTap: _showAvatarSelection,
-                    child: Stack(
-                      alignment: Alignment.bottomRight,
-                      children: [
-                        CircleAvatar(
-                            radius: 60,
-                            backgroundColor: Colors.teal.shade100,
-                            backgroundImage: _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
-                            child: _avatarUrl == null
-                                ? const Icon(Icons.person, size: 60, color: Colors.teal)
-                                : null
-                        ),
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
-                          child: const Icon(Icons.edit, color: Colors.white, size: 20),
-                        )
-                      ],
-                    ),
                   ),
 
                   const SizedBox(height: 20),
@@ -159,14 +141,13 @@ class _ProfilePageState extends State<ProfilePage> {
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepOrange)
                   ),
                   const SizedBox(height: 30),
-                  TextField(
+
+                  CustomTextField(
                     controller: _usernameController,
-                    decoration: const InputDecoration(
-                        labelText: "Display Name",
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.badge)
-                    ),
+                    label: "Display Name",
+                    action: TextInputAction.done,
                   ),
+
                   const SizedBox(height: 20),
                   _isLoading
                       ? const CircularProgressIndicator()

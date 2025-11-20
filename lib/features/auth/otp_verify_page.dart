@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/common/utils/app_utils.dart';
+import 'package:aura_track/common/widgets/custom_text_field.dart';
+import 'package:aura_track/core/services/auth_service.dart';
 
 class OtpVerifyPage extends StatefulWidget {
   final String email;
@@ -11,41 +13,32 @@ class OtpVerifyPage extends StatefulWidget {
 
 class _OtpVerifyPageState extends State<OtpVerifyPage> {
   final _otpController = TextEditingController();
+  final _authService = AuthService();
   bool _isLoading = false;
 
   Future<void> _verify() async {
     setState(() => _isLoading = true);
     try {
-      final response = await Supabase.instance.client.auth.verifyOTP(
-        type: OtpType.signup,
-        token: _otpController.text.trim(),
-        email: widget.email,
-      );
+      await _authService.verifyOtp(widget.email, _otpController.text.trim());
 
-      if (!mounted) return;
-
-      if (response.session != null) {
+      if (mounted) {
+        // Pop until we are back to AuthGate/Home
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please input 6-Digit Code.')));
+      if (mounted) {
+        AppUtils.showSnackBar(context, 'Invalid Code or expired.', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    if(mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _resendOTP() async {
     try {
-      await Supabase.instance.client.auth.resend(type: OtpType.signup, email: widget.email);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Confirmation email resent! Check your inbox.')),
-      );
+      AppUtils.showSnackBar(context, 'Code resent!');
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Resend failed: $e')),
-      );
+      AppUtils.showSnackBar(context, 'Resend failed.', isError: true);
     }
   }
 
@@ -60,13 +53,10 @@ class _OtpVerifyPageState extends State<OtpVerifyPage> {
           children: [
             Text("Enter the code sent to ${widget.email}"),
             const SizedBox(height: 20),
-            TextField(
+            CustomTextField(
               controller: _otpController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                  labelText: '6-Digit Code',
-                  border: OutlineInputBorder()
-              ),
+              label: '6-Digit Code',
+              inputType: TextInputType.number,
             ),
             const SizedBox(height: 24),
             _isLoading

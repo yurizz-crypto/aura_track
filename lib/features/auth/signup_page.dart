@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/common/utils/app_utils.dart';
+import 'package:aura_track/common/widgets/custom_text_field.dart';
+import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/features/auth/otp_verify_page.dart';
 
 class SignupPage extends StatefulWidget {
@@ -13,63 +15,49 @@ class _SignupPageState extends State<SignupPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  bool _isLoading = false;
+  final _authService = AuthService();
 
-  bool _isValidEmail(String email) {
-    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
-  }
+  bool _isLoading = false;
 
   Future<void> _signUp() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final confirm = _confirmPasswordController.text.trim();
 
+    // Validation using Utils
     if (email.isEmpty) {
-      _showError('Email is required');
+      AppUtils.showSnackBar(context, 'Email is required', isError: true);
       return;
     }
-    if (!_isValidEmail(email)) {
-      _showError('Please enter a valid email address');
+    if (!AppUtils.isValidEmail(email)) {
+      AppUtils.showSnackBar(context, 'Please enter a valid email address', isError: true);
       return;
     }
-    if (password.isEmpty) {
-      _showError('Password is required');
-      return;
-    }
-    if (password.length < 6) {
-      _showError('Password must be at least 6 characters long');
+    if (password.isEmpty || password.length < 6) {
+      AppUtils.showSnackBar(context, 'Password must be at least 6 characters', isError: true);
       return;
     }
     if (password != confirm) {
-      _showError("Passwords do not match");
+      AppUtils.showSnackBar(context, "Passwords do not match", isError: true);
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-      await Supabase.instance.client.auth.signUp(
-        email: email,
-        password: password,
-      );
+      await _authService.signUp(email, password);
 
       if (!mounted) return;
 
-      // Navigate to OTP Verification
       Navigator.of(context).push(
         MaterialPageRoute(builder: (context) => OtpVerifyPage(email: email)),
       );
-
     } catch (e) {
-      if (!mounted) return;
-      _showError('Something went wrong. Please try again.');
+      if (mounted) {
+        AppUtils.showSnackBar(context, 'Signup failed. Please try again.', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    if (mounted) setState(() => _isLoading = false);
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
   }
 
   @override
@@ -81,25 +69,25 @@ class _SignupPageState extends State<SignupPage> {
         child: Column(
           children: [
             const SizedBox(height: 20),
-            TextField(
+            CustomTextField(
               controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
+              label: 'Email',
+              inputType: TextInputType.emailAddress,
+              action: TextInputAction.next,
             ),
             const SizedBox(height: 12),
-            TextField(
+            CustomTextField(
               controller: _passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
-              textInputAction: TextInputAction.next,
+              label: 'Password',
+              isPassword: true,
+              action: TextInputAction.next,
             ),
             const SizedBox(height: 12),
-            TextField(
+            CustomTextField(
               controller: _confirmPasswordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Confirm Password', border: OutlineInputBorder()),
-              textInputAction: TextInputAction.done,
+              label: 'Confirm Password',
+              isPassword: true,
+              action: TextInputAction.done,
               onSubmitted: (_) => _signUp(),
             ),
             const SizedBox(height: 24),

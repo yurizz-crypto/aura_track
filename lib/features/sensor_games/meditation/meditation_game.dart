@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/core/services/habit_repository.dart';
+import 'package:aura_track/core/services/auth_service.dart';
+import 'package:aura_track/common/widgets/confirmation_dialog.dart';
+import 'package:aura_track/common/utils/app_utils.dart';
 
 class MeditationGame extends StatefulWidget {
   final String habitId;
@@ -14,12 +17,14 @@ class MeditationGame extends StatefulWidget {
 
 class _MeditationGameState extends State<MeditationGame> with SingleTickerProviderStateMixin {
   final int _targetSeconds = 60;
-
   double _progress = 0.0;
   bool _isMoving = false;
   bool _completed = false;
   Timer? _timer;
   StreamSubscription<UserAccelerometerEvent>? _accelSubscription;
+
+  final _habitRepo = HabitRepository();
+  final _authService = AuthService();
 
   @override
   void initState() {
@@ -32,11 +37,8 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
     _accelSubscription = userAccelerometerEventStream().listen((event) {
       double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       bool currentlyMoving = magnitude > 0.3;
-
       if (currentlyMoving != _isMoving) {
-        setState(() {
-          _isMoving = currentlyMoving;
-        });
+        setState(() => _isMoving = currentlyMoving);
       }
     });
   }
@@ -49,9 +51,7 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
       }
 
       if (!_isMoving) {
-        setState(() {
-          _progress += (0.1 / _targetSeconds);
-        });
+        setState(() => _progress += (0.1 / _targetSeconds));
 
         if (_progress >= 1.0) {
           _finishGame();
@@ -65,44 +65,24 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
     _timer?.cancel();
     _accelSubscription?.cancel();
 
-    final userId = Supabase.instance.client.auth.currentUser!.id;
+    final userId = _authService.currentUserId;
+    if (userId == null) return;
 
     try {
-      // FIXED: Added .toUtc()
-      await Supabase.instance.client.from('habit_logs').insert({
-        'habit_id': widget.habitId,
-        'user_id': userId,
-        'completed_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      await _habitRepo.completeHabitInteraction(widget.habitId, userId);
 
-      await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
+      if (mounted) AppUtils.showSnackBar(context, "Points earned!");
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Points earned!")));
+        await CustomDialogs.showSuccessDialog(
+            context,
+            title: "Zen Achieved 🌸",
+            content: "You remained still and mindful for 60 seconds."
+        );
+        if (mounted) Navigator.of(context).pop();
       }
     } catch (e) {
       print('Database Update Error: $e');
-    }
-
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text("Zen Achieved 🌸"),
-          content: const Text("You remained still and mindful for 60 seconds."),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pop(context);
-              },
-              child: const Text("Namaste"),
-            )
-          ],
-        ),
-      );
-      await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
     }
   }
 
@@ -140,18 +120,13 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
                   ),
                 ),
                 const SizedBox(height: 40),
-
                 SizedBox(
                   height: canvasSize,
                   width: canvasSize,
                   child: CustomPaint(
-                    painter: MeditationTimerPainter(
-                        progress: _progress,
-                        isMoving: _isMoving
-                    ),
+                    painter: MeditationTimerPainter(progress: _progress, isMoving: _isMoving),
                   ),
                 ),
-
                 const SizedBox(height: 40),
                 Text("$secondsRemaining seconds remaining", style: const TextStyle(fontSize: 20)),
                 const SizedBox(height: 10),
@@ -168,7 +143,6 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
 class MeditationTimerPainter extends CustomPainter {
   final double progress;
   final bool isMoving;
-
   MeditationTimerPainter({required this.progress, required this.isMoving});
 
   @override
@@ -190,17 +164,12 @@ class MeditationTimerPainter extends CustomPainter {
 
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
-      -pi / 2,
-      2 * pi * progress,
-      false,
-      progressPaint,
+      -pi / 2, 2 * pi * progress, false, progressPaint,
     );
 
     Paint dotPaint = Paint()..color = isMoving ? Colors.redAccent : Colors.tealAccent;
-
     double jitterX = isMoving ? (Random().nextDouble() * 20 - 10) : 0;
     double jitterY = isMoving ? (Random().nextDouble() * 20 - 10) : 0;
-
     canvas.drawCircle(center + Offset(jitterX, jitterY), 20, dotPaint);
   }
 

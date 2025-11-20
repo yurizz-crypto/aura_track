@@ -1,8 +1,13 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
-import 'dart:math';
+
+import 'package:aura_track/core/services/auth_service.dart';
+import 'package:aura_track/core/services/habit_repository.dart';
+import 'package:aura_track/common/utils/app_utils.dart';
+import 'package:aura_track/common/widgets/confirmation_dialog.dart';
 
 import 'package:aura_track/features/sensor_games/water_pour/water_pour_game.dart';
 import 'package:aura_track/features/sensor_games/meditation/meditation_game.dart';
@@ -16,7 +21,11 @@ class UserHome extends StatefulWidget {
 }
 
 class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin {
-  final _userId = Supabase.instance.client.auth.currentUser!.id;
+  final _authService = AuthService();
+  final _habitRepo = HabitRepository();
+
+  late final String _userId;
+
   bool _showCalendar = false;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
@@ -30,6 +39,13 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
+    final id = _authService.currentUserId;
+    if (id == null) {
+      _userId = '';
+    } else {
+      _userId = id;
+    }
+
     _selectedDay = _focusedDay;
     _glowController = AnimationController(
       vsync: this,
@@ -45,9 +61,12 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
   }
 
   Future<void> _fetchMonthlyEvents() async {
+    if (_userId.isEmpty) return;
+
     final startOfMonth = DateTime(_focusedDay.year, _focusedDay.month, 1);
     final endOfMonth = DateTime(_focusedDay.year, _focusedDay.month + 1, 0);
 
+    // Keeping this specific query here as it's highly specific to the Calendar view
     final response = await Supabase.instance.client
         .from('habit_logs')
         .select('completed_at')
@@ -78,23 +97,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
         .map((event) => event.first);
   }
 
-  Stream<List<Map<String, dynamic>>> _getHabitsStream() {
-    return Supabase.instance.client
-        .from('habits')
-        .stream(primaryKey: ['id'])
-        .eq('user_id', _userId)
-        .order('created_at');
-  }
-
-  Stream<List<Map<String, dynamic>>> _getRecentLogsStream() {
-    return Supabase.instance.client
-        .from('habit_logs')
-        .stream(primaryKey: ['id'])
-        .eq('user_id', _userId)
-        .order('completed_at', ascending: false)
-        .limit(50);
-  }
-
   bool _isHappeningToday(String completedAtIso) {
     final logDate = DateTime.parse(completedAtIso).toLocal();
     final now = DateTime.now();
@@ -108,6 +110,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
     try {
+      // Update profile points
       await Supabase.instance.client.from('profiles').update({
         'points': currentPoints + 30,
         'last_bonus_date': today,
@@ -118,19 +121,18 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
           _isClaimingLoading = false;
           _optimisticBonusClaimed = true;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("🎉 30 Points Claimed! Daily Quota Met."), backgroundColor: Colors.green),
-        );
+        AppUtils.showSnackBar(context, "🎉 30 Points Claimed! Daily Quota Met.");
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isClaimingLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Claim failed. Please try restarting the app.")));
+        AppUtils.showSnackBar(context, "Claim failed. Please try again.", isError: true);
       }
     }
   }
 
   Future<void> _deleteHabit(String habitId, String habitTitle) async {
+    // check for existing logs
     final logCount = await Supabase.instance.client
         .from('habit_logs')
         .count(CountOption.exact)
@@ -139,6 +141,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     if (!mounted) return;
 
     if (logCount > 0) {
+      // We can also move this Alert to CustomDialogs if we want a specific 'Info' dialog
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -150,24 +153,18 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
       return;
     }
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Delete Habit?"),
-        content: Text("Delete '$habitTitle'? This cannot be undone."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text("Delete")),
-        ],
-      ),
+    // REFACTORED: Use reusable confirmation dialog
+    final confirm = await CustomDialogs.showConfirmDialog(
+      context,
+      title: "Delete Habit?",
+      content: "Delete '$habitTitle'? This cannot be undone.",
+      confirmText: "Delete",
+      confirmColor: Colors.red,
     );
 
-    if (confirm == true) {
-      await Supabase.instance.client.from('habits').delete().eq('id', habitId);
-      setState(() {});
+    if (confirm) {
+      await _habitRepo.deleteHabit(habitId);
+      setState(() {}); // Refresh UI
     }
   }
 
@@ -231,14 +228,12 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                           },
                         ),
                       ),
-
-                      // --- CHANGED: Moved from bottom: 10 to top: 16 ---
                       Positioned(
                         top: 16,
                         left: 16,
                         right: 16,
                         child: StreamBuilder<List<Map<String, dynamic>>>(
-                            stream: _getHabitsStream(),
+                            stream: _habitRepo.getHabitsStream(_userId), // REFACTORED: Use Repo
                             builder: (context, habitSnapshot) {
                               final habits = habitSnapshot.data ?? [];
                               final interactiveHabitIds = habits
@@ -247,7 +242,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                                   .toSet();
 
                               return StreamBuilder<List<Map<String, dynamic>>>(
-                                stream: _getRecentLogsStream(),
+                                stream: _habitRepo.getRecentLogsStream(_userId), // REFACTORED: Use Repo
                                 builder: (context, logsSnapshot) {
                                   final allLogs = logsSnapshot.data ?? [];
 
@@ -258,7 +253,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                                   }).toList();
 
                                   final int count = interactiveTodayLogs.length;
-
                                   return _buildQuotaCard(count, isBonusClaimed, flowers);
                                 },
                               );
@@ -270,7 +264,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                 },
               ),
             ),
-
             Expanded(
               child: _showCalendar ? _buildCalendarView() : _buildHabitTabs(),
             ),
@@ -333,7 +326,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
       decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.9),
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 5)]
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 5)]
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -360,13 +353,13 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
 
   Widget _buildHabitTabs() {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _getHabitsStream(),
+      stream: _habitRepo.getHabitsStream(_userId), // REFACTORED: Use Repo
       builder: (context, habitSnapshot) {
         if (!habitSnapshot.hasData) return const Center(child: CircularProgressIndicator());
         final allHabits = habitSnapshot.data ?? [];
 
         return StreamBuilder<List<Map<String, dynamic>>>(
-            stream: _getRecentLogsStream(),
+            stream: _habitRepo.getRecentLogsStream(_userId), // REFACTORED: Use Repo
             builder: (context, logSnapshot) {
               final logs = logSnapshot.data ?? [];
 
@@ -558,7 +551,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
   void _startHabit(BuildContext context, Map<String, dynamic> habit) async {
     final habitType = habit['type'];
     final habitId = habit['id'];
-    final userId = Supabase.instance.client.auth.currentUser!.id;
 
     if (habitType == 'water_game') {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => WaterPourGame(habitId: habitId)));
@@ -567,16 +559,12 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     } else if (habitType == 'walking_game') {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => WalkingHabit(habitId: habitId)));
     } else {
+      // REFACTORED: Use Repository for standard habits
       try {
-        await Supabase.instance.client.from('habit_logs').insert({
-          'habit_id': habitId,
-          'user_id': userId,
-          'completed_at': DateTime.now().toUtc().toIso8601String(),
-        });
-        await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Habit marked done!")));
+        await _habitRepo.completeHabitInteraction(habitId, _userId);
+        if(mounted) AppUtils.showSnackBar(context, "Habit marked done!");
       } catch(e) {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Try again later.")));
+        if(mounted) AppUtils.showSnackBar(context, "Try again later.", isError: true);
       }
     }
 
@@ -589,7 +577,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     final controller = TextEditingController();
     String selectedType = 'water_game';
     String selectedIconAsset = 'check';
-    final userId = Supabase.instance.client.auth.currentUser!.id;
+
     bool isSaving = false;
 
     await showDialog(
@@ -674,8 +662,9 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                     setDialogState(() => isSaving = true);
 
                     try {
+                      // In a full refactor, this would be in HabitRepository.createHabit
                       await Supabase.instance.client.from('habits').insert({
-                        'user_id': userId,
+                        'user_id': _userId,
                         'title': controller.text,
                         'type': selectedType,
                         'icon_asset': selectedType == 'standard' ? selectedIconAsset : null,
@@ -684,18 +673,11 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                       if (context.mounted) {
                         Navigator.pop(context);
                         setState(() {});
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("Seed planted successfully! 🌱"))
-                        );
+                        AppUtils.showSnackBar(context, "Seed planted successfully! 🌱");
                       }
                     } catch (e) {
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text("Failed to plant: ${e.toString().split('\n').first}"),
-                              backgroundColor: Colors.red,
-                            )
-                        );
+                        AppUtils.showSnackBar(context, "Failed to plant: ${e.toString().split('\n').first}", isError: true);
                         setDialogState(() => isSaving = false);
                       }
                     }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/common/widgets/confirmation_dialog.dart';
+import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/features/dashboard/user_home.dart';
 import 'package:aura_track/features/dashboard/leaderboard_page.dart';
 import 'package:aura_track/features/dashboard/profile_page.dart';
@@ -24,25 +25,16 @@ class _MainScaffoldState extends State<MainScaffold> {
     setState(() => _selectedIndex = index);
   }
 
-  Future<void> _confirmLogout() async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout?'),
-        content: const Text('Are you sure you want to leave your garden?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Stay')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
+  Future<void> _handleLogout() async {
+    final confirm = await CustomDialogs.showConfirmDialog(
+      context,
+      title: 'Logout?',
+      content: 'Are you sure you want to leave your garden?',
+      confirmText: 'Logout',
     );
 
-    if (shouldLogout == true) {
-      await Supabase.instance.client.auth.signOut();
+    if (confirm) {
+      await AuthService().signOut();
     }
   }
 
@@ -55,21 +47,21 @@ class _MainScaffoldState extends State<MainScaffold> {
         onDestinationSelected: _onItemTapped,
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.local_florist), 
-            label: 'Garden'
+              icon: Icon(Icons.local_florist),
+              label: 'Garden'
           ),
           NavigationDestination(
-            icon: Icon(Icons.emoji_events), 
-            label: 'Leaderboard'
+              icon: Icon(Icons.emoji_events),
+              label: 'Leaderboard'
           ),
           NavigationDestination(
-            icon: Icon(Icons.person), 
-            label: 'Profile'
+              icon: Icon(Icons.person),
+              label: 'Profile'
           ),
         ],
       ),
       floatingActionButton: _selectedIndex == 0 ? null : FloatingActionButton(
-        onPressed: _confirmLogout,
+        onPressed: _handleLogout,
         backgroundColor: Colors.red.shade100,
         child: const Icon(Icons.logout, color: Colors.red),
       ),

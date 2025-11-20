@@ -27,7 +27,7 @@ class AuthGate extends StatelessWidget {
               .from('profiles')
               .select('role')
               .eq('id', session.user.id)
-              .maybeSingle(), 
+              .maybeSingle(),
           builder: (context, roleSnapshot) {
             if (roleSnapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(body: Center(child: CircularProgressIndicator()));

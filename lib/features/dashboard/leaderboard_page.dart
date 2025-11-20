@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aura_track/common/widgets/user_avatar.dart';
 
 class LeaderboardPage extends StatelessWidget {
   const LeaderboardPage({super.key});
@@ -26,14 +27,14 @@ class LeaderboardPage extends StatelessWidget {
               stream: Supabase.instance.client
                   .from('profiles')
                   .stream(primaryKey: ['id'])
-                  .eq('role', 'user'),
+                  .eq('role', 'user'), // We can move this query to a Repository later
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
                 if (snapshot.hasError) {
-                  return Center(child: Text('Something went wrong: Restart the app.'));
+                  return const Center(child: Text('Something went wrong: Restart the app.'));
                 }
 
                 final users = snapshot.data!;
@@ -48,18 +49,15 @@ class LeaderboardPage extends StatelessWidget {
                     final user = sortedUsers[index];
                     final isMe = user['id'] == currentUserId;
                     final isHotStreak = (user['current_streak'] ?? 0) >= 7;
-                    final avatarUrl = user['avatar_url'];
 
                     return ListTile(
-                      // FIXED: Leading contains Row with Rank Circle AND Avatar
                       leading: SizedBox(
-                        width: 90, // Fixed width to fit both circles
+                        width: 90,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.start,
                           children: [
-                            // 1. The "Trophy" / Rank Circle
                             CircleAvatar(
-                              radius: 14, // Slightly smaller to fit nicely
+                              radius: 14,
                               backgroundColor: index == 0 ? Colors.amber : Colors.teal,
                               foregroundColor: Colors.white,
                               child: Text(
@@ -67,19 +65,12 @@ class LeaderboardPage extends StatelessWidget {
                                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            const SizedBox(width: 8), // Gap between rank and avatar
+                            const SizedBox(width: 8),
 
-                            // 2. The User Avatar
-                            CircleAvatar(
+                            UserAvatar(
+                              avatarUrl: user['avatar_url'],
+                              username: user['username'] ?? 'A',
                               radius: 20,
-                              backgroundColor: Colors.grey.shade200,
-                              backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                              child: avatarUrl == null
-                                  ? Text(
-                                (user['username'] ?? "A")[0].toUpperCase(),
-                                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
-                              )
-                                  : null,
                             ),
                           ],
                         ),
