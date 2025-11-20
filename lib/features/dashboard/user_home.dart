@@ -528,10 +528,12 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) return const SizedBox();
                       final logs = snapshot.data as List;
-                      if (logs.isEmpty) return Padding(
+                      if (logs.isEmpty) {
+                        return Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Text("No blooms on ${DateFormat.yMMMd().format(_selectedDay!)}."),
                       );
+                      }
 
                       return Column(
                         children: logs.map((log) {
@@ -630,7 +632,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                     const Text("Habit Type:", style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: selectedType,
+                      initialValue: selectedType,
                       decoration: const InputDecoration(border: OutlineInputBorder()),
                       isExpanded: true,
                       items: const [
@@ -682,7 +684,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
 
                       if (context.mounted) {
                         Navigator.pop(context);
-                        this.setState(() {});
+                        setState(() {});
                         ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text("Seed planted successfully! 🌱"))
                         );

@@ -101,8 +101,10 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
     }
 
     try {
-      await _audioPlayer.play(AssetSource('sounds/success.mp3'));
-    } catch (e) {}
+      await _audioPlayer.play(AssetSource('lib/assets/sound/success.mp3'));
+    } catch (e) {
+      print("AUDIO ERROR: $e");
+    }
 
     if (mounted) {
       showDialog(

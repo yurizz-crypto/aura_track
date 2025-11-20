@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   permission_handler: ^12.0.1
   audioplayers: ^6.5.1
   supabase_flutter: ^2.10.3
@@ -45,5 +46,5 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
-    - lib/assets/sounds/
+    - lib/assets/sound/
     - lib/assets/images/
