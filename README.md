@@ -1,50 +1,69 @@
-Aura Track 🌿
-A Gamified Habit Tracker & Digital Sanctuary
+# **🌿 Aura Track**
 
-Aura Track is a Flutter application that transforms daily habit building into a visual, interactive experience. Users "plant" habits, and completing them helps their digital garden bloom. The app utilizes device sensors for interactive verification of specific habits (walking, hydration, meditation).
+**Gamify your wellness journey. Grow your garden, grow yourself.**
 
-📱 Features
-Core Functionality
-Digital Garden: Your home screen is a dynamic garden. The more points you earn, the more flowers bloom.
+Aura Track is a Flutter-based habit tracking application that blends wellness with gamification. Unlike standard habit trackers that rely solely on checkboxes, Aura Track utilizes device sensors (accelerometer, pedometer) to verify interactive habits, rewarding users with a blooming digital garden.
 
-Gamification: Earn points and maintain streaks to unlock visual rewards (glowing flowers).
+## **📱 Features**
 
-Calendar View: Track your history and see past "blooms" using a calendar interface.
+### **🎮 Interactive Sensor Habits**
 
-Leaderboard: Compete with other users in the community based on points earned from interactive habits.
+Aura Track uses hardware sensors to ensure you are actually performing the habit:
 
-Authentication: Secure Email/Password login and signup via Supabase.
+* **💧 Hydration Game:** Uses the **accelerometer**. Tilt your phone to pour water into a virtual glass.  
+* **🧘 Meditation Mode:** Uses the **gyroscope/accelerometer**. Detects movement to ensure you stay perfectly still for 60 seconds.  
+* **🏃 Walking Challenge:** Uses the **pedometer**. Tracks your real-world steps to verify movement goals.
 
-Role-Based Access: distinct dashboards for regular Users and Admins.
+### **🌻 Gamified Dashboard**
 
-Interactive Sensor Games
-Aura Track goes beyond checkboxes by using device hardware to verify habits:
+* **Digital Garden:** Your home screen features a procedural garden. The more points you earn, the more flowers bloom.  
+* **Streaks & Glow:** Maintain a 7-day streak to make your garden "glow" at night.  
+* **Daily Quotas:** visual progress bars for daily interactive goals.
 
-Walking Habit: Uses the Pedometer sensor. Users must walk 20 meters/27 steps to complete the goal.
+### **📊 Social & Tracking**
 
-Hydration (Pour Water): Uses the Gyroscope. Users physically tilt their phone to "pour" water into a virtual glass.
+* **Leaderboard:** Compete with other users in the "Community Garden".  
+* **Calendar View:** Track your consistency with a monthly history view.  
+* **Profile Customization:** Choose avatars and update your display name.
 
-Meditation: Uses the Accelerometer. Users must keep their phone perfectly still for 15 seconds to achieve "Zen".
+### **🛡️ Role-Based Access**
 
-🛠 Tech Stack
-Frontend: Flutter (Dart)
+* **User Portal:** Standard habit tracking.  
+* **Admin Console:** Dedicated dashboard for managing users and creating global challenges.
 
-Backend: Supabase (PostgreSQL, Auth, Edge Functions)
+## **🛠️ Tech Stack**
 
-State Management: StatefulWidget / setState (Local state management)
+* **Framework:** [Flutter](https://flutter.dev/) (Dart)  
+* **Backend as a Service:** [Supabase](https://supabase.com/)  
+* **State Management:** setState & Streams  
+* **Key Packages:**  
+  * supabase\_flutter (Auth & Database)  
+  * sensors\_plus (Accelerometer/Gyroscope)  
+  * pedometer (Step counting)  
+  * audioplayers (Sound effects)  
+  * table\_calendar (History view)  
+  * flutter\_dotenv (Environment security)
 
-Key Dependencies:
+## **📂 Project Structure**
 
-supabase_flutter: Backend integration.
+lib/  
+├── common/             \# Reusable widgets and utils  
+│   ├── utils/          \# Validators, Snackbars  
+│   └── widgets/        \# CustomTextField, UserAvatar, Dialogs  
+├── core/  
+│   └── services/       \# AuthService, HabitRepository  
+├── features/  
+│   ├── admin\_panel/    \# Admin Dashboard logic  
+│   ├── auth/           \# Login, Signup, OTP, AuthGate  
+│   ├── dashboard/      \# UserHome, Leaderboard, Profile  
+│   └── sensor\_games/   \# Logic for Water, Walking, and Meditation games  
+├── assets/             \# Images and Sound effects  
+└── main.dart           \# Entry point
 
-sensors_plus: Access to Accelerometer and Gyroscope.
+## **📄 License**
 
-pedometer: Step counting.
+Distributed under the MIT License. See LICENSE for more information.
 
-permission_handler: Managing Android/iOS permissions.
-
-audioplayers: Sound effects.
-
-table_calendar: History visualization.
-
-google_fonts: Typography (Poppins).
+\<p align="center"\>  
+Built with 💙 and Flutter  
+\</p\>
