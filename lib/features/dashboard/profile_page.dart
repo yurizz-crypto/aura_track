@@ -4,6 +4,7 @@ import 'package:aura_track/common/utils/app_utils.dart';
 import 'package:aura_track/common/widgets/custom_text_field.dart';
 import 'package:aura_track/common/widgets/user_avatar.dart';
 
+/// Allows the user to view their stats, update their display name, and choose an avatar.
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -17,6 +18,7 @@ class _ProfilePageState extends State<ProfilePage> {
   int _currentStreak = 0;
   String? _avatarUrl;
 
+  // Preset avatars using DiceBear API
   final List<String> _avatarOptions = [
     'https://api.dicebear.com/7.x/adventurer/png?seed=Felix',
     'https://api.dicebear.com/7.x/adventurer/png?seed=Aneka',
@@ -34,6 +36,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadProfile();
   }
 
+  /// Fetches current profile data from Supabase.
   Future<void> _loadProfile() async {
     final userId = Supabase.instance.client.auth.currentUser!.id;
     final data = await Supabase.instance.client
@@ -51,6 +54,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// Saves changes to the database.
   Future<void> _updateProfile() async {
     setState(() => _isLoading = true);
     try {
@@ -67,6 +71,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) setState(() => _isLoading = false);
   }
 
+  /// Opens a bottom sheet to select a new avatar.
   void _showAvatarSelection() {
     showModalBottomSheet(
       context: context,
@@ -127,6 +132,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 children: [
                   const SizedBox(height: 20),
 
+                  // Reusable Avatar Component with Edit Indicator
                   UserAvatar(
                     avatarUrl: _avatarUrl,
                     username: _usernameController.text,

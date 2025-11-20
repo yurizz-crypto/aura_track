@@ -6,6 +6,7 @@ import 'package:aura_track/core/services/habit_repository.dart';
 import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/common/widgets/confirmation_dialog.dart';
 
+/// A sensor-based habit where the user must walk ~25m to earn points.
 class WalkingHabit extends StatefulWidget {
   final String habitId;
   const WalkingHabit({super.key, required this.habitId});
@@ -21,6 +22,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
   bool _completed = false;
   bool _permissionGranted = false;
   bool _isInitializing = true;
+
   late StreamSubscription<StepCount> _stepCountSubscription;
   Timer? _stabilizationTimer;
 
@@ -75,6 +77,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
           (StepCount event) {
         if (_completed) return;
         setState(() {
+          // 1. Wait for initial stream event to stabilize baseline
           if (_startStepCount == null && _stabilizationTimer == null) {
             _isInitializing = true;
             _stabilizationTimer = Timer(const Duration(milliseconds: 500), () {
@@ -83,9 +86,11 @@ class _WalkingHabitState extends State<WalkingHabit> {
               _stabilizationTimer?.cancel();
             });
           }
+          // 2. Calculate relative steps walked in this session
           if (_startStepCount != null && !_isInitializing) {
             _currentStepsCount = event.steps - _startStepCount!;
           }
+          // 3. Check for completion
           if (_currentStepsCount >= _targetSteps) {
             _finishGame();
           }
@@ -133,7 +138,7 @@ class _WalkingHabitState extends State<WalkingHabit> {
         if (mounted) Navigator.of(context).pop();
       }
     } catch (e) {
-      print('Game Error: $e');
+      debugPrint('Game Error: $e');
     }
   }
 

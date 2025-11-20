@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:aura_track/common/widgets/confirmation_dialog.dart';
 import 'package:aura_track/core/services/auth_service.dart';
+import 'package:aura_track/features/admin_panel/create_challenge_page.dart'; // Import the new page
 
+/// The dashboard screen visible only to users with the 'admin' role.
+/// Displays high-level stats and content management options.
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
 
+  /// Shows a logout confirmation dialog and signs out if confirmed.
   Future<void> _handleLogout(BuildContext context) async {
     final confirm = await CustomDialogs.showConfirmDialog(
       context,
@@ -40,7 +44,7 @@ class AdminDashboard extends StatelessWidget {
             const Text("System Overview", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
 
-            // We can leave this direct call or move it to a UserRepository later
+            // Fetches and displays total user count
             FutureBuilder(
               future: Supabase.instance.client.from('profiles').select(),
               builder: (context, snapshot) {
@@ -73,7 +77,10 @@ class AdminDashboard extends StatelessWidget {
               title: const Text("Create Global Challenge"),
               subtitle: const Text("Deploy a new habit template to all users"),
               onTap: () {
-                // Navigation to create challenge page
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const CreateChallengePage()),
+                );
               },
             ),
           ],

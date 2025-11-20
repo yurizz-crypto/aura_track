@@ -5,6 +5,8 @@ import 'package:aura_track/features/dashboard/user_home.dart';
 import 'package:aura_track/features/dashboard/leaderboard_page.dart';
 import 'package:aura_track/features/dashboard/profile_page.dart';
 
+/// The main shell of the application for authenticated users.
+/// Manages the BottomNavigationBar and navigation between Home, Leaderboard, and Profile.
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
 
@@ -25,6 +27,7 @@ class _MainScaffoldState extends State<MainScaffold> {
     setState(() => _selectedIndex = index);
   }
 
+  /// Displays a confirmation dialog before signing out.
   Future<void> _handleLogout() async {
     final confirm = await CustomDialogs.showConfirmDialog(
       context,
@@ -35,6 +38,7 @@ class _MainScaffoldState extends State<MainScaffold> {
 
     if (confirm) {
       await AuthService().signOut();
+      // Navigation is handled automatically by AuthGate listening to the stream.
     }
   }
 
@@ -60,6 +64,7 @@ class _MainScaffoldState extends State<MainScaffold> {
           ),
         ],
       ),
+      // Show Logout button only on the Garden (Home) tab
       floatingActionButton: _selectedIndex == 0 ? null : FloatingActionButton(
         onPressed: _handleLogout,
         backgroundColor: Colors.red.shade100,

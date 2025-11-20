@@ -7,6 +7,8 @@ import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/common/widgets/confirmation_dialog.dart';
 import 'package:aura_track/common/utils/app_utils.dart';
 
+/// A mindfulness game where user must hold the phone still for 60 seconds.
+/// Uses accelerometer to detect movement.
 class MeditationGame extends StatefulWidget {
   final String habitId;
   const MeditationGame({super.key, required this.habitId});
@@ -33,9 +35,11 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
     _startTimer();
   }
 
+  /// Detects device movement using UserAccelerometer (excludes gravity).
   void _startSensor() {
     _accelSubscription = userAccelerometerEventStream().listen((event) {
       double magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+      // Threshold for stillness
       bool currentlyMoving = magnitude > 0.3;
       if (currentlyMoving != _isMoving) {
         setState(() => _isMoving = currentlyMoving);
@@ -43,6 +47,7 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
     });
   }
 
+  /// Increments progress if the device is still.
   void _startTimer() {
     _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (_completed) {
@@ -82,7 +87,7 @@ class _MeditationGameState extends State<MeditationGame> with SingleTickerProvid
         if (mounted) Navigator.of(context).pop();
       }
     } catch (e) {
-      print('Database Update Error: $e');
+      debugPrint('Database Update Error: $e');
     }
   }
 

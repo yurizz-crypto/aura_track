@@ -4,6 +4,8 @@ import 'package:aura_track/common/widgets/custom_text_field.dart';
 import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/features/auth/otp_verify_page.dart';
 
+/// Screen allowing new users to create an account.
+/// Navigates to [OtpVerifyPage] upon successful registration initiation.
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
 
@@ -19,12 +21,13 @@ class _SignupPageState extends State<SignupPage> {
 
   bool _isLoading = false;
 
+  /// Validates form fields and calls [AuthService.signUp].
   Future<void> _signUp() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final confirm = _confirmPasswordController.text.trim();
 
-    // Validation using Utils
+    // Input Validation
     if (email.isEmpty) {
       AppUtils.showSnackBar(context, 'Email is required', isError: true);
       return;
@@ -48,6 +51,7 @@ class _SignupPageState extends State<SignupPage> {
 
       if (!mounted) return;
 
+      // Navigate to OTP verification screen passing the email used
       Navigator.of(context).push(
         MaterialPageRoute(builder: (context) => OtpVerifyPage(email: email)),
       );

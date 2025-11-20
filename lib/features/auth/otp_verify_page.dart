@@ -3,7 +3,9 @@ import 'package:aura_track/common/utils/app_utils.dart';
 import 'package:aura_track/common/widgets/custom_text_field.dart';
 import 'package:aura_track/core/services/auth_service.dart';
 
+/// Screen to verify the email OTP code sent during signup.
 class OtpVerifyPage extends StatefulWidget {
+  /// The email address to verify.
   final String email;
   const OtpVerifyPage({super.key, required this.email});
 
@@ -16,13 +18,15 @@ class _OtpVerifyPageState extends State<OtpVerifyPage> {
   final _authService = AuthService();
   bool _isLoading = false;
 
+  /// Submits the OTP token to Supabase.
+  /// On success, pops back to the root so [AuthGate] can redirect to the main app.
   Future<void> _verify() async {
     setState(() => _isLoading = true);
     try {
       await _authService.verifyOtp(widget.email, _otpController.text.trim());
 
       if (mounted) {
-        // Pop until we are back to AuthGate/Home
+        // Pop all routes until we reach the AuthGate (root), which will auto-detect the new session.
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
@@ -34,8 +38,10 @@ class _OtpVerifyPageState extends State<OtpVerifyPage> {
     }
   }
 
+  /// Placeholder for resending OTP functionality.
   Future<void> _resendOTP() async {
     try {
+      // Implement authService.resendOtp(widget.email) here in future
       AppUtils.showSnackBar(context, 'Code resent!');
     } catch (e) {
       AppUtils.showSnackBar(context, 'Resend failed.', isError: true);

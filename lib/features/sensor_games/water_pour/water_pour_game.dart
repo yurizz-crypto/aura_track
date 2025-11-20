@@ -6,6 +6,7 @@ import 'package:aura_track/core/services/habit_repository.dart';
 import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/common/widgets/confirmation_dialog.dart';
 
+/// A game where users must physically tilt their phone to "pour" water into a virtual glass.
 class WaterPourGame extends StatefulWidget {
   final String habitId;
   const WaterPourGame({super.key, required this.habitId});
@@ -21,8 +22,8 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
   bool _isPouring = false;
   bool _completed = false;
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  final AudioPlayer _effectPlayer = AudioPlayer();
+  final AudioPlayer _audioPlayer = AudioPlayer(); // For success sound
+  final AudioPlayer _effectPlayer = AudioPlayer(); // For pouring water sound
 
   final _habitRepo = HabitRepository();
   final _authService = AuthService();
@@ -35,12 +36,14 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
     _startListeningToSensor();
   }
 
+  /// Listens to accelerometer events to detect phone orientation.
   void _startListeningToSensor() {
     _accelSubscription = accelerometerEvents.listen((AccelerometerEvent event) {
       if (_completed) return;
 
       setState(() {
         _tiltX = event.x;
+        // Threshold > 5.0 roughly indicates a 45+ degree tilt sideways
         bool nowPouring = _tiltX.abs() > 5.0;
 
         if (nowPouring && !_isPouring) {
@@ -61,7 +64,7 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
   Future<void> _playPourSound() async {
     try {
       await _effectPlayer.play(AssetSource('water_flow.mp3'));
-    } catch(e) { /* ignore */ }
+    } catch(e) { /* ignore audio errors */ }
   }
 
   Future<void> _stopPourSound() async {
@@ -70,10 +73,11 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
     } catch(e) { /* ignore */ }
   }
 
+  /// Increases fill level based on how steep the angle is.
   void _fillGlass() {
     if (_fillLevel < 1.0) {
       setState(() {
-        double flowRate = (_tiltX.abs() - 4.0) / 500.0;
+        double flowRate = (_tiltX.abs() - 4.0) / 500.0; // Steeper tilt = faster flow
         if (flowRate < 0.005) flowRate = 0.005;
         _fillLevel += flowRate;
         _fillLevel = _fillLevel.clamp(0.0, 1.0);
@@ -95,6 +99,7 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
     if (userId == null) return;
 
     try {
+      // Centralized completion logic
       await _habitRepo.completeHabitInteraction(widget.habitId, userId);
 
       try {
@@ -110,7 +115,7 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
         if (mounted) Navigator.of(context).pop();
       }
     } catch (e) {
-      print('Error finishing game: $e');
+      debugPrint('Error finishing game: $e');
     }
   }
 

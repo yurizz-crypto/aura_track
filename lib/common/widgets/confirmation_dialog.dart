@@ -1,6 +1,15 @@
 import 'package:flutter/material.dart';
 
+/// A utility class for showing standardized modal dialogs across the app.
 class CustomDialogs {
+  /// Shows a confirmation dialog with "Cancel" and a custom confirm button.
+  ///
+  /// Returns `true` if the user clicks the confirm button, `false` otherwise.
+  ///
+  /// [title]: The bold header text of the dialog.
+  /// [content]: The body text explaining the action.
+  /// [confirmText]: Label for the action button (default: "Yes").
+  /// [confirmColor]: Background color for the action button (default: Red).
   static Future<bool> showConfirmDialog(
       BuildContext context, {
         required String title,
@@ -32,6 +41,10 @@ class CustomDialogs {
     return result ?? false;
   }
 
+  /// Shows a simple information/success dialog with a single dismissal button.
+  ///
+  /// [title]: The header text.
+  /// [content]: The body message.
   static Future<void> showSuccessDialog(
       BuildContext context, {
         required String title,

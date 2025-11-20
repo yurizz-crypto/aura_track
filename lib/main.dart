@@ -4,12 +4,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:aura_track/splash_page.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+/// App entry point. Initializes environment variables and Supabase before running the app.
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Load the .env file containing API keys
   await dotenv.load(fileName: ".env");
 
   await Supabase.initialize(
+    // Access variables using dotenv.env
     url: dotenv.env['SUPABASE_URL'] ?? '',
     anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
   );

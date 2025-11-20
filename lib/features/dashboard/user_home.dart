@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -8,11 +7,19 @@ import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/core/services/habit_repository.dart';
 import 'package:aura_track/common/utils/app_utils.dart';
 import 'package:aura_track/common/widgets/confirmation_dialog.dart';
+import 'package:aura_track/common/widgets/garden_scene.dart';
 
 import 'package:aura_track/features/sensor_games/water_pour/water_pour_game.dart';
 import 'package:aura_track/features/sensor_games/meditation/meditation_game.dart';
 import 'package:aura_track/features/sensor_games/walking/walking_habit.dart';
 
+/// The primary dashboard for authenticated users.
+///
+/// Features:
+/// 1. **Digital Garden:** Visualizes user progress (points/streaks) via [GardenScene].
+/// 2. **Habit Tracker:** Lists daily habits (todo/done) and interactive games.
+/// 3. **Calendar:** Shows a history of completed habits.
+/// 4. **Gamification:** Handles daily quotas and bonus point claiming.
 class UserHome extends StatefulWidget {
   const UserHome({super.key});
 
@@ -20,7 +27,7 @@ class UserHome extends StatefulWidget {
   State<UserHome> createState() => _UserHomeState();
 }
 
-class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin {
+class _UserHomeState extends State<UserHome> {
   final _authService = AuthService();
   final _habitRepo = HabitRepository();
 
@@ -34,8 +41,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
   bool _isClaimingLoading = false;
   bool _optimisticBonusClaimed = false;
 
-  late AnimationController _glowController;
-
   @override
   void initState() {
     super.initState();
@@ -47,26 +52,22 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     }
 
     _selectedDay = _focusedDay;
-    _glowController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
     _fetchMonthlyEvents();
   }
 
   @override
   void dispose() {
-    _glowController.dispose();
     super.dispose();
   }
 
+  /// Fetches habit logs for the currently focused month to populate the calendar dots.
+  /// Events are grouped by date in the [_events] map.
   Future<void> _fetchMonthlyEvents() async {
     if (_userId.isEmpty) return;
 
     final startOfMonth = DateTime(_focusedDay.year, _focusedDay.month, 1);
     final endOfMonth = DateTime(_focusedDay.year, _focusedDay.month + 1, 0);
 
-    // Keeping this specific query here as it's highly specific to the Calendar view
     final response = await Supabase.instance.client
         .from('habit_logs')
         .select('completed_at')
@@ -89,6 +90,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     }
   }
 
+  /// Listens to real-time updates for the user's profile (points, streaks).
   Stream<Map<String, dynamic>> _getProfileStream() {
     return Supabase.instance.client
         .from('profiles')
@@ -97,6 +99,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
         .map((event) => event.first);
   }
 
+  /// Helper to check if a specific log timestamp occurred today.
   bool _isHappeningToday(String completedAtIso) {
     final logDate = DateTime.parse(completedAtIso).toLocal();
     final now = DateTime.now();
@@ -105,12 +108,13 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
         logDate.day == now.day;
   }
 
+  /// Awards 30 bonus points when the daily interactive quota is met.
+  /// Updates `last_bonus_date` to prevent double claiming.
   Future<void> _claimDailyBonus(int currentPoints) async {
     setState(() => _isClaimingLoading = true);
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
     try {
-      // Update profile points
       await Supabase.instance.client.from('profiles').update({
         'points': currentPoints + 30,
         'last_bonus_date': today,
@@ -131,8 +135,9 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     }
   }
 
+  /// Deletes a custom habit.
+  /// Prevents deletion if the habit has existing completion logs to preserve history.
   Future<void> _deleteHabit(String habitId, String habitTitle) async {
-    // check for existing logs
     final logCount = await Supabase.instance.client
         .from('habit_logs')
         .count(CountOption.exact)
@@ -141,7 +146,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     if (!mounted) return;
 
     if (logCount > 0) {
-      // We can also move this Alert to CustomDialogs if we want a specific 'Info' dialog
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -153,7 +157,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
       return;
     }
 
-    // REFACTORED: Use reusable confirmation dialog
     final confirm = await CustomDialogs.showConfirmDialog(
       context,
       title: "Delete Habit?",
@@ -164,7 +167,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
 
     if (confirm) {
       await _habitRepo.deleteHabit(habitId);
-      setState(() {}); // Refresh UI
+      setState(() {});
     }
   }
 
@@ -172,6 +175,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
     final screenHeight = MediaQuery.of(context).size.height;
+    // Dynamic height for the garden area
     final double gardenHeight = isLandscape ? screenHeight * 0.35 : 260.0;
 
     return DefaultTabController(
@@ -181,6 +185,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
         appBar: AppBar(
           title: const Text('My Sanctuary'),
           actions: [
+            // Toggle between List view and Calendar view
             IconButton(
               icon: Icon(_showCalendar ? Icons.list : Icons.calendar_month),
               onPressed: () => setState(() => _showCalendar = !_showCalendar),
@@ -197,6 +202,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
         ),
         body: Column(
           children: [
+            // 1. Garden Section (Top)
             SizedBox(
               height: gardenHeight,
               width: double.infinity,
@@ -213,27 +219,34 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
 
                   return Stack(
                     children: [
+                      // Background Garden Animation
                       Positioned.fill(
-                        child: AnimatedBuilder(
-                          animation: _glowController,
-                          builder: (context, child) {
-                            return CustomPaint(
-                              painter: BetterGardenPainter(
-                                totalPoints: flowers + (_optimisticBonusClaimed ? 30 : 0),
-                                currentStreak: streak,
-                                animationValue: _glowController.value,
-                                isQuotaMet: isBonusClaimed,
-                              ),
-                            );
-                          },
+                        child: GardenScene(
+                          totalPoints: flowers + (_optimisticBonusClaimed ? 30 : 0),
+                          currentStreak: streak,
+                          isQuotaMet: isBonusClaimed,
                         ),
                       ),
+                      // Level Badge Overlay
+                      Positioned(
+                          bottom: 10,
+                          right: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
+                            child: Text(
+                                "Level ${(flowers / 50).floor()} • ${flowers % 50}/50 Blooms",
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)
+                            ),
+                          )
+                      ),
+                      // Daily Quota Card Overlay
                       Positioned(
                         top: 16,
                         left: 16,
                         right: 16,
                         child: StreamBuilder<List<Map<String, dynamic>>>(
-                            stream: _habitRepo.getHabitsStream(_userId), // REFACTORED: Use Repo
+                            stream: _habitRepo.getHabitsStream(_userId),
                             builder: (context, habitSnapshot) {
                               final habits = habitSnapshot.data ?? [];
                               final interactiveHabitIds = habits
@@ -242,10 +255,11 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                                   .toSet();
 
                               return StreamBuilder<List<Map<String, dynamic>>>(
-                                stream: _habitRepo.getRecentLogsStream(_userId), // REFACTORED: Use Repo
+                                stream: _habitRepo.getRecentLogsStream(_userId),
                                 builder: (context, logsSnapshot) {
                                   final allLogs = logsSnapshot.data ?? [];
 
+                                  // Filter logs to count only Interactive habits done today
                                   final interactiveTodayLogs = allLogs.where((log) {
                                     bool isToday = _isHappeningToday(log['completed_at']);
                                     bool isInteractive = interactiveHabitIds.contains(log['habit_id']);
@@ -264,6 +278,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                 },
               ),
             ),
+            // 2. Habit List or Calendar (Bottom)
             Expanded(
               child: _showCalendar ? _buildCalendarView() : _buildHabitTabs(),
             ),
@@ -278,6 +293,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Builds the quota progress card or the "Claim Bonus" button.
   Widget _buildQuotaCard(int count, bool isClaimed, int currentPoints) {
     if (isClaimed) {
       return Card(
@@ -300,6 +316,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
       );
     }
 
+    // Show Claim button if 10+ interactive habits completed
     if (count >= 10) {
       return SizedBox(
         width: double.infinity,
@@ -320,6 +337,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
       );
     }
 
+    // Otherwise show progress bar
     double progress = (count / 10.0).clamp(0.0, 1.0);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -351,18 +369,20 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Builds the TabView for "Unfinished" vs "Completed" habits.
   Widget _buildHabitTabs() {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _habitRepo.getHabitsStream(_userId), // REFACTORED: Use Repo
+      stream: _habitRepo.getHabitsStream(_userId),
       builder: (context, habitSnapshot) {
         if (!habitSnapshot.hasData) return const Center(child: CircularProgressIndicator());
         final allHabits = habitSnapshot.data ?? [];
 
         return StreamBuilder<List<Map<String, dynamic>>>(
-            stream: _habitRepo.getRecentLogsStream(_userId), // REFACTORED: Use Repo
+            stream: _habitRepo.getRecentLogsStream(_userId),
             builder: (context, logSnapshot) {
               final logs = logSnapshot.data ?? [];
 
+              // Identify which habits have been done today
               final completedIds = logs
                   .where((log) => _isHappeningToday(log['completed_at']))
                   .map((log) => log['habit_id'])
@@ -382,6 +402,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Generic list builder for a list of habits.
   Widget _buildHabitListView(BuildContext context, List<Map<String, dynamic>> habits, {required bool isDone}) {
     if (habits.isEmpty) {
       return Center(child: Text(isDone ? "Keep growing! Do a habit." : "All caught up! Great job. 🌸"));
@@ -448,12 +469,14 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     }
   }
 
+  /// Builds the calendar view showing dots for days with activity.
   Widget _buildCalendarView() {
     int totalEvents = 0;
     _events.forEach((_, list) => totalEvents += list.length);
 
     return Column(
       children: [
+        // Calendar Header Stats
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Card(
@@ -510,6 +533,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                     markerDecoration: BoxDecoration(color: Colors.pinkAccent, shape: BoxShape.circle),
                   ),
                 ),
+                // Selected Day Details
                 if (_selectedDay != null) ...[
                   const Divider(),
                   FutureBuilder(
@@ -548,6 +572,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     );
   }
 
+  /// Launches a sensor game or completes a standard habit immediately.
   void _startHabit(BuildContext context, Map<String, dynamic> habit) async {
     final habitType = habit['type'];
     final habitId = habit['id'];
@@ -559,7 +584,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     } else if (habitType == 'walking_game') {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => WalkingHabit(habitId: habitId)));
     } else {
-      // REFACTORED: Use Repository for standard habits
+      // Standard habits complete instantly
       try {
         await _habitRepo.completeHabitInteraction(habitId, _userId);
         if(mounted) AppUtils.showSnackBar(context, "Habit marked done!");
@@ -568,11 +593,13 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
       }
     }
 
+    // Refresh stats
     setState(() {
       _fetchMonthlyEvents();
     });
   }
 
+  /// Shows a form dialog to create a new habit.
   Future<void> _showAddHabitDialog(BuildContext context) async {
     final controller = TextEditingController();
     String selectedType = 'water_game';
@@ -662,7 +689,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                     setDialogState(() => isSaving = true);
 
                     try {
-                      // In a full refactor, this would be in HabitRepository.createHabit
+                      // Insert new habit into DB
                       await Supabase.instance.client.from('habits').insert({
                         'user_id': _userId,
                         'title': controller.text,
@@ -691,96 +718,5 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
           }
       ),
     );
-  }
-}
-
-class BetterGardenPainter extends CustomPainter {
-  final int totalPoints;
-  final int currentStreak;
-  final double animationValue;
-  final bool isQuotaMet;
-
-  BetterGardenPainter({
-    this.totalPoints = 0,
-    required this.currentStreak,
-    this.animationValue = 0.0,
-    this.isQuotaMet = false,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint();
-    final random = Random(totalPoints);
-    final isGlowing = currentStreak >= 7;
-
-    final Rect rect = Offset.zero & size;
-    final Gradient gradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: isQuotaMet
-          ? [Colors.orange.shade100, Colors.white]
-          : [Colors.lightBlue.shade100, Colors.white],
-    );
-    paint.shader = gradient.createShader(rect);
-    canvas.drawRect(rect, paint);
-
-    paint.shader = null;
-    paint.color = Colors.green.shade300;
-    final Path hillPath = Path();
-    hillPath.moveTo(0, size.height);
-    hillPath.lineTo(0, size.height - 30);
-    hillPath.quadraticBezierTo(size.width * 0.25, size.height - 60, size.width * 0.5, size.height - 40);
-    hillPath.quadraticBezierTo(size.width * 0.75, size.height - 20, size.width, size.height - 50);
-    hillPath.lineTo(size.width, size.height);
-    canvas.drawPath(hillPath, paint);
-
-    int flowerCount = min(totalPoints, 25);
-
-    for (int i = 0; i < flowerCount; i++) {
-      double x = size.width * (0.1 + (i % 5) * 0.15);
-      double y = size.height - 30 - (random.nextDouble() * 20);
-
-      if (i >= 5) x += size.width * 0.05;
-      if (i >= 10) x -= size.width * 0.1;
-
-      _drawFlower(canvas, x, y, Colors.primaries[i % Colors.primaries.length], isGlowing);
-    }
-  }
-
-  void _drawFlower(Canvas canvas, double x, double y, Color color, bool isGlowing) {
-    final paint = Paint()..style = PaintingStyle.fill;
-
-    if (isGlowing) {
-      double glowRadius = 12.0 + (animationValue * 6.0);
-      double glowOpacity = 0.4 + (animationValue * 0.4);
-
-      paint.maskFilter = const MaskFilter.blur(BlurStyle.outer, 5.0);
-      paint.color = Colors.amber.withOpacity(glowOpacity);
-      canvas.drawCircle(Offset(x, y - 40), glowRadius, paint);
-      paint.maskFilter = null;
-    }
-
-    paint.color = Colors.green.shade800;
-    paint.strokeWidth = 3;
-    canvas.drawLine(Offset(x, y), Offset(x, y - 40), paint);
-
-    paint.color = color;
-    for (int i = 0; i < 5; i++) {
-      double angle = (i * 72) * pi / 180;
-      double petalX = x + cos(angle) * 10;
-      double petalY = (y - 40) + sin(angle) * 10;
-      canvas.drawCircle(Offset(petalX, petalY), 6, paint);
-    }
-
-    paint.color = Colors.yellow;
-    canvas.drawCircle(Offset(x, y - 40), 4, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant BetterGardenPainter oldDelegate) {
-    return oldDelegate.totalPoints != totalPoints ||
-        oldDelegate.currentStreak != currentStreak ||
-        oldDelegate.animationValue != animationValue ||
-        oldDelegate.isQuotaMet != isQuotaMet;
   }
 }

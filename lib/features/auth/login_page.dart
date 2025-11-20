@@ -5,6 +5,7 @@ import 'package:aura_track/common/widgets/custom_text_field.dart';
 import 'package:aura_track/core/services/auth_service.dart';
 import 'package:aura_track/features/auth/signup_page.dart';
 
+/// Screen allowing existing users to sign in via Email/Password or Social Providers.
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -18,6 +19,8 @@ class _LoginPageState extends State<LoginPage> {
   final _authService = AuthService();
   bool _isLoading = false;
 
+  /// Validates inputs and attempts to sign in using [AuthService].
+  /// If successful, [AuthGate] handles the navigation automatically.
   Future<void> _signIn() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -48,6 +51,7 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// Initiates an OAuth login flow (Google/Facebook).
   Future<void> _socialLogin(OAuthProvider provider) async {
     try {
       await Supabase.instance.client.auth.signInWithOAuth(
