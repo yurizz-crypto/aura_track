@@ -27,6 +27,8 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+    _audioPlayer.audioCache.prefix = 'lib/assets/sound/';
+    _effectPlayer.audioCache.prefix = 'lib/assets/sound/';
     _startListeningToSensor();
   }
 
@@ -55,8 +57,10 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
 
   Future<void> _playPourSound() async {
     try {
-      // await _effectPlayer.play(AssetSource('sounds/water_flow.mp3'));
-    } catch(e) {}
+      await _effectPlayer.play(AssetSource('water_flow.mp3'));
+    } catch(e) {
+      // Nothing
+    }
   }
 
   Future<void> _stopPourSound() async {
@@ -68,9 +72,10 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
   void _fillGlass() {
     if (_fillLevel < 1.0) {
       setState(() {
-        double flowRate = (_tiltX.abs() - 4.0) / 100.0;
+        double flowRate = (_tiltX.abs() - 4.0) / 500.0;
         if (flowRate < 0.005) flowRate = 0.005;
         _fillLevel += flowRate;
+        _fillLevel = _fillLevel.clamp(0.0, 1.0);
       });
     } else {
       _finishGame();
@@ -88,7 +93,6 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
     final userId = Supabase.instance.client.auth.currentUser!.id;
 
     try {
-      // FIXED: Added .toUtc() to ensure it matches UserHome logic
       await Supabase.instance.client.from('habit_logs').insert({
         'habit_id': widget.habitId,
         'user_id': userId,
@@ -97,13 +101,13 @@ class _WaterPourGameState extends State<WaterPourGame> with SingleTickerProvider
 
       await Supabase.instance.client.rpc('increment_points', params: {'row_id': userId});
     } catch (e) {
-      print('Database Update Error: $e');
+      print('Something went wrong. Try again later.');
     }
 
     try {
-      await _audioPlayer.play(AssetSource('lib/assets/sound/success.mp3'));
+      await _audioPlayer.play(AssetSource('success.mp3'));
     } catch (e) {
-      print("AUDIO ERROR: $e");
+      // Nothing
     }
 
     if (mounted) {

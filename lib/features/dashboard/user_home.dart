@@ -22,7 +22,6 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
   DateTime? _selectedDay;
   Map<DateTime, List<dynamic>> _events = {};
 
-  // UI State for the Claim Button
   bool _isClaimingLoading = false;
   bool _optimisticBonusClaimed = false;
 
@@ -126,7 +125,7 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
     } catch (e) {
       if (mounted) {
         setState(() => _isClaimingLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Claim failed. Please try restarting the app.")));
       }
     }
   }
@@ -233,8 +232,9 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                         ),
                       ),
 
+                      // --- CHANGED: Moved from bottom: 10 to top: 16 ---
                       Positioned(
-                        bottom: 10,
+                        top: 16,
                         left: 16,
                         right: 16,
                         child: StreamBuilder<List<Map<String, dynamic>>>(
@@ -530,9 +530,9 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
                       final logs = snapshot.data as List;
                       if (logs.isEmpty) {
                         return Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Text("No blooms on ${DateFormat.yMMMd().format(_selectedDay!)}."),
-                      );
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text("No blooms on ${DateFormat.yMMMd().format(_selectedDay!)}."),
+                        );
                       }
 
                       return Column(
@@ -576,11 +576,10 @@ class _UserHomeState extends State<UserHome> with SingleTickerProviderStateMixin
         await Supabase.instance.client.rpc('update_user_streak', params: {'user_uuid': userId});
         if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Habit marked done!")));
       } catch(e) {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Try again later.")));
       }
     }
 
-    // Force UI Refresh after coming back from game screen
     setState(() {
       _fetchMonthlyEvents();
     });

@@ -60,7 +60,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile Updated!")));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Something went wrong. Try again later.")));
     }
     setState(() => _isLoading = false);
   }

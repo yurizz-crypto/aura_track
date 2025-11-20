@@ -25,7 +25,6 @@ class _OtpVerifyPageState extends State<OtpVerifyPage> {
       if (!mounted) return;
 
       if (response.session != null) {
-        // Verification successful, AuthGate handles the rest
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {

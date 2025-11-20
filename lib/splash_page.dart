@@ -16,8 +16,6 @@ class _SplashPageState extends State<SplashPage> {
   }
 
   Future<void> _redirect() async {
-    // Simulating a brief loading time (e.g., 3 seconds) for branding
-    // You can remove this delay if you want it to be instant
     await Future.delayed(const Duration(seconds: 3));
 
     if (!mounted) return;
@@ -30,7 +28,6 @@ class _SplashPageState extends State<SplashPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Matches your Teal theme background
       backgroundColor: Colors.teal.shade50, 
       body: Center(
         child: Column(

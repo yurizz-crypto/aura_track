@@ -33,7 +33,7 @@ class LeaderboardPage extends StatelessWidget {
                 }
 
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error loading leaderboard: ${snapshot.error}'));
+                  return Center(child: Text('Something went wrong: Restart the app.'));
                 }
 
                 final users = snapshot.data!;

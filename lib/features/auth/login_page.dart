@@ -14,22 +14,19 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
 
-  // Helper for email validation (basic regex check)
   bool _isValidEmail(String email) {
     return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
   }
 
-  // OAuth Logic
   Future<void> _socialLogin(OAuthProvider provider) async {
     try {
       await Supabase.instance.client.auth.signInWithOAuth(
         provider,
-        // IMPORTANT: Replace with the scheme you set in Phase 1
         redirectTo: 'io.supabase.auratrack://login-callback',
       );
     } catch (e) {
       if (!mounted) return;
-      _showError('Social Login Error: $e');
+      _showError('Something went wrong. Please try again.');
     }
   }
 
@@ -37,7 +34,6 @@ class _LoginPageState extends State<LoginPage> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
-    // Validation
     if (email.isEmpty) {
       _showError('Email is required');
       return;
@@ -60,7 +56,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showError('Login failed: ${e.toString()}');
+      _showError('Wrong Email or Password. Please try again.');
     }
     if (!mounted) return;
     setState(() => _isLoading = false);
@@ -125,7 +121,6 @@ class _LoginPageState extends State<LoginPage> {
                   ]),
                   const SizedBox(height: 20),
 
-                  // Social Login Buttons
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

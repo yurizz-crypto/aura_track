@@ -15,7 +15,6 @@ class _SignupPageState extends State<SignupPage> {
   final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
 
-  // Helper for email validation (basic regex check)
   bool _isValidEmail(String email) {
     return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
   }
@@ -25,7 +24,6 @@ class _SignupPageState extends State<SignupPage> {
     final password = _passwordController.text.trim();
     final confirm = _confirmPasswordController.text.trim();
 
-    // Validation
     if (email.isEmpty) {
       _showError('Email is required');
       return;
@@ -63,7 +61,7 @@ class _SignupPageState extends State<SignupPage> {
 
     } catch (e) {
       if (!mounted) return;
-      _showError('Signup failed: ${e.toString()}');
+      _showError('Something went wrong. Please try again.');
     }
     if (mounted) setState(() => _isLoading = false);
   }
