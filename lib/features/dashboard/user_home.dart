@@ -13,13 +13,10 @@ import 'package:aura_track/features/sensor_games/water_pour/water_pour_game.dart
 import 'package:aura_track/features/sensor_games/meditation/meditation_game.dart';
 import 'package:aura_track/features/sensor_games/walking/walking_habit.dart';
 
-/// The primary dashboard for authenticated users.
+/// The main dashboard screen for the user.
 ///
-/// Features:
-/// 1. **Digital Garden:** Visualizes user progress (points/streaks) via [GardenScene].
-/// 2. **Habit Tracker:** Lists daily habits (todo/done) and interactive games.
-/// 3. **Calendar:** Shows a history of completed habits.
-/// 4. **Gamification:** Handles daily quotas and bonus point claiming.
+/// Displays the "Sanctuary" (virtual garden), the daily habit lists (Unfinished/Completed),
+/// and a monthly calendar view of activity.
 class UserHome extends StatefulWidget {
   const UserHome({super.key});
 
@@ -45,26 +42,15 @@ class _UserHomeState extends State<UserHome> {
   void initState() {
     super.initState();
     final id = _authService.currentUserId;
-    if (id == null) {
-      _userId = '';
-    } else {
-      _userId = id;
-    }
-
+    _userId = id ?? '';
     _selectedDay = _focusedDay;
     _fetchMonthlyEvents();
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
-  /// Fetches habit logs for the currently focused month to populate the calendar dots.
-  /// Events are grouped by date in the [_events] map.
+  /// Fetches habit completion logs for the currently focused month.
+  /// Populates the calendar with dots indicating activity.
   Future<void> _fetchMonthlyEvents() async {
     if (_userId.isEmpty) return;
-
     final startOfMonth = DateTime(_focusedDay.year, _focusedDay.month, 1);
     final endOfMonth = DateTime(_focusedDay.year, _focusedDay.month + 1, 0);
 
@@ -83,14 +69,10 @@ class _UserHomeState extends State<UserHome> {
       newEvents[dayKey]!.add(log);
     }
 
-    if (mounted) {
-      setState(() {
-        _events = newEvents;
-      });
-    }
+    if (mounted) setState(() => _events = newEvents);
   }
 
-  /// Listens to real-time updates for the user's profile (points, streaks).
+  /// Returns a stream of the user's profile to update the Garden and Points in real-time.
   Stream<Map<String, dynamic>> _getProfileStream() {
     return Supabase.instance.client
         .from('profiles')
@@ -99,7 +81,7 @@ class _UserHomeState extends State<UserHome> {
         .map((event) => event.first);
   }
 
-  /// Helper to check if a specific log timestamp occurred today.
+  /// Helper to check if a specific log timestamp occurred on the current device date.
   bool _isHappeningToday(String completedAtIso) {
     final logDate = DateTime.parse(completedAtIso).toLocal();
     final now = DateTime.now();
@@ -108,8 +90,8 @@ class _UserHomeState extends State<UserHome> {
         logDate.day == now.day;
   }
 
-  /// Awards 30 bonus points when the daily interactive quota is met.
-  /// Updates `last_bonus_date` to prevent double claiming.
+  /// Awards 30 points to the user if they have completed 10 interactive habits.
+  /// Updates the `last_bonus_date` to prevent double claiming.
   Future<void> _claimDailyBonus(int currentPoints) async {
     setState(() => _isClaimingLoading = true);
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -135,8 +117,10 @@ class _UserHomeState extends State<UserHome> {
     }
   }
 
-  /// Deletes a custom habit.
-  /// Prevents deletion if the habit has existing completion logs to preserve history.
+  /// Deletes a habit.
+  ///
+  /// If the habit has existing logs, it warns the user that history will be lost
+  /// before performing the deletion.
   Future<void> _deleteHabit(String habitId, String habitTitle) async {
     final logCount = await Supabase.instance.client
         .from('habit_logs')
@@ -145,37 +129,86 @@ class _UserHomeState extends State<UserHome> {
 
     if (!mounted) return;
 
+    String content = "Delete '$habitTitle'? This cannot be undone.";
     if (logCount > 0) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("Cannot Delete"),
-          content: Text("'$habitTitle' is part of your history. You cannot delete active habits that have records."),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("OK"))],
-        ),
-      );
-      return;
+      content = "⚠️ Warning: '$habitTitle' has $logCount completion records.\n\nDeleting this will PERMANENTLY REMOVE all its history.";
     }
 
     final confirm = await CustomDialogs.showConfirmDialog(
       context,
       title: "Delete Habit?",
-      content: "Delete '$habitTitle'? This cannot be undone.",
-      confirmText: "Delete",
+      content: content,
+      confirmText: "Delete Forever",
       confirmColor: Colors.red,
     );
 
     if (confirm) {
-      await _habitRepo.deleteHabit(habitId);
-      setState(() {});
+      try {
+        if (logCount > 0) {
+          await Supabase.instance.client.from('habit_logs').delete().eq('habit_id', habitId);
+        }
+        await _habitRepo.deleteHabit(habitId);
+        setState(() {});
+      } catch (e) {
+        if (mounted) AppUtils.showSnackBar(context, "Error deleting: $e", isError: true);
+      }
     }
+  }
+
+  /// Displays a dialog to rename an existing habit.
+  Future<void> _showEditHabitDialog(Map<String, dynamic> habit) async {
+    final controller = TextEditingController(text: habit['title']);
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("Edit Habit"),
+              content: TextField(
+                controller: controller,
+                decoration: const InputDecoration(labelText: "Habit Name"),
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("Cancel")
+                ),
+                ElevatedButton(
+                  onPressed: isSaving ? null : () async {
+                    if (controller.text.isEmpty) return;
+                    setDialogState(() => isSaving = true);
+                    try {
+                      await Supabase.instance.client
+                          .from('habits')
+                          .update({'title': controller.text})
+                          .eq('id', habit['id']);
+
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        setState(() {});
+                        AppUtils.showSnackBar(context, "Habit updated!");
+                      }
+                    } catch (e) {
+                      setDialogState(() => isSaving = false);
+                    }
+                  },
+                  child: isSaving
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
+                      : const Text("Save"),
+                )
+              ],
+            );
+          }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
     final screenHeight = MediaQuery.of(context).size.height;
-    // Dynamic height for the garden area
     final double gardenHeight = isLandscape ? screenHeight * 0.35 : 260.0;
 
     return DefaultTabController(
@@ -185,7 +218,6 @@ class _UserHomeState extends State<UserHome> {
         appBar: AppBar(
           title: const Text('My Sanctuary'),
           actions: [
-            // Toggle between List view and Calendar view
             IconButton(
               icon: Icon(_showCalendar ? Icons.list : Icons.calendar_month),
               onPressed: () => setState(() => _showCalendar = !_showCalendar),
@@ -202,7 +234,6 @@ class _UserHomeState extends State<UserHome> {
         ),
         body: Column(
           children: [
-            // 1. Garden Section (Top)
             SizedBox(
               height: gardenHeight,
               width: double.infinity,
@@ -219,7 +250,7 @@ class _UserHomeState extends State<UserHome> {
 
                   return Stack(
                     children: [
-                      // Background Garden Animation
+                      // 1. Garden Background
                       Positioned.fill(
                         child: GardenScene(
                           totalPoints: flowers + (_optimisticBonusClaimed ? 30 : 0),
@@ -227,7 +258,7 @@ class _UserHomeState extends State<UserHome> {
                           isQuotaMet: isBonusClaimed,
                         ),
                       ),
-                      // Level Badge Overlay
+                      // 2. Level Badge
                       Positioned(
                           bottom: 10,
                           right: 10,
@@ -240,7 +271,7 @@ class _UserHomeState extends State<UserHome> {
                             ),
                           )
                       ),
-                      // Daily Quota Card Overlay
+                      // 3. Daily Quota Card Overlay
                       Positioned(
                         top: 16,
                         left: 16,
@@ -259,7 +290,7 @@ class _UserHomeState extends State<UserHome> {
                                 builder: (context, logsSnapshot) {
                                   final allLogs = logsSnapshot.data ?? [];
 
-                                  // Filter logs to count only Interactive habits done today
+                                  // Count interactive habits done TODAY
                                   final interactiveTodayLogs = allLogs.where((log) {
                                     bool isToday = _isHappeningToday(log['completed_at']);
                                     bool isInteractive = interactiveHabitIds.contains(log['habit_id']);
@@ -278,7 +309,6 @@ class _UserHomeState extends State<UserHome> {
                 },
               ),
             ),
-            // 2. Habit List or Calendar (Bottom)
             Expanded(
               child: _showCalendar ? _buildCalendarView() : _buildHabitTabs(),
             ),
@@ -293,7 +323,7 @@ class _UserHomeState extends State<UserHome> {
     );
   }
 
-  /// Builds the quota progress card or the "Claim Bonus" button.
+  /// Renders the card showing progress toward the 10-habit daily quota.
   Widget _buildQuotaCard(int count, bool isClaimed, int currentPoints) {
     if (isClaimed) {
       return Card(
@@ -316,7 +346,6 @@ class _UserHomeState extends State<UserHome> {
       );
     }
 
-    // Show Claim button if 10+ interactive habits completed
     if (count >= 10) {
       return SizedBox(
         width: double.infinity,
@@ -337,7 +366,6 @@ class _UserHomeState extends State<UserHome> {
       );
     }
 
-    // Otherwise show progress bar
     double progress = (count / 10.0).clamp(0.0, 1.0);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -369,7 +397,8 @@ class _UserHomeState extends State<UserHome> {
     );
   }
 
-  /// Builds the TabView for "Unfinished" vs "Completed" habits.
+  /// Builds the tab view for "Unfinished" vs "Completed" habits.
+  /// Separates habits based on whether they have been performed today (Daily) or marked complete (One-time).
   Widget _buildHabitTabs() {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _habitRepo.getHabitsStream(_userId),
@@ -382,19 +411,48 @@ class _UserHomeState extends State<UserHome> {
             builder: (context, logSnapshot) {
               final logs = logSnapshot.data ?? [];
 
-              // Identify which habits have been done today
-              final completedIds = logs
+              final doneTodayIds = logs
                   .where((log) => _isHappeningToday(log['completed_at']))
                   .map((log) => log['habit_id'])
                   .toSet();
 
-              final unfinishedHabits = allHabits.where((h) => !completedIds.contains(h['id'])).toList();
-              final completedHabits = allHabits.where((h) => completedIds.contains(h['id'])).toList();
+              final List<Map<String, dynamic>> unfinished = [];
+              final List<Map<String, dynamic>> completed = [];
+
+              for (var habit in allHabits) {
+                final isOnce = habit['frequency'] == 'once';
+                final isCompletedFlag = habit['is_completed'] == true;
+
+                bool isDone;
+                if (isOnce) {
+                  isDone = isCompletedFlag;
+                } else {
+                  isDone = doneTodayIds.contains(habit['id']);
+                }
+
+                if (isDone) {
+                  completed.add(habit);
+                } else {
+                  unfinished.add(habit);
+                }
+              }
 
               return TabBarView(
                 children: [
-                  _buildHabitListView(context, unfinishedHabits, isDone: false),
-                  _buildHabitListView(context, completedHabits, isDone: true),
+                  PaginatedHabitList(
+                    habits: unfinished,
+                    isDone: false,
+                    onStart: (h) => _startHabit(context, h),
+                    onDelete: (id, title) => _deleteHabit(id, title),
+                    onEdit: (h) => _showEditHabitDialog(h),
+                  ),
+                  PaginatedHabitList(
+                    habits: completed,
+                    isDone: true,
+                    onStart: (h) => _startHabit(context, h),
+                    onDelete: (id, title) => _deleteHabit(id, title),
+                    onEdit: (h) => _showEditHabitDialog(h),
+                  ),
                 ],
               );
             });
@@ -402,81 +460,13 @@ class _UserHomeState extends State<UserHome> {
     );
   }
 
-  /// Generic list builder for a list of habits.
-  Widget _buildHabitListView(BuildContext context, List<Map<String, dynamic>> habits, {required bool isDone}) {
-    if (habits.isEmpty) {
-      return Center(child: Text(isDone ? "Keep growing! Do a habit." : "All caught up! Great job. 🌸"));
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: habits.length,
-      itemBuilder: (context, index) {
-        final habit = habits[index];
-        final isStandard = habit['type'] == 'standard';
-        final iconData = _getIconForHabit(habit['type'], habit['icon_asset']);
-
-        return Card(
-          elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(12),
-            leading: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isDone ? Colors.green.shade100 : Colors.teal.shade50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(iconData, color: isDone ? Colors.green : Colors.teal),
-            ),
-            title: Text(habit['title'],
-                style: TextStyle(decoration: isDone ? TextDecoration.lineThrough : null, fontWeight: FontWeight.bold)),
-            subtitle: Text(isDone ? "Completed Today" : (isStandard ? "Standard Habit" : "Interactive Game")),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (!isDone)
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                    onPressed: () => _deleteHabit(habit['id'], habit['title']),
-                  ),
-                if (isDone)
-                  const Icon(Icons.check_circle, color: Colors.green)
-                else
-                  ElevatedButton(
-                    onPressed: () => _startHabit(context, habit),
-                    child: Text(isStandard ? "Done" : "Play"),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  IconData _getIconForHabit(String type, String? iconAsset) {
-    if (type == 'water_game') return Icons.water_drop;
-    if (type == 'meditation_game') return Icons.self_improvement;
-    if (type == 'walking_game') return Icons.directions_run;
-
-    switch (iconAsset) {
-      case 'book': return Icons.menu_book;
-      case 'gym': return Icons.fitness_center;
-      case 'bed': return Icons.bed;
-      case 'sun': return Icons.sunny;
-      default: return Icons.check_circle_outline;
-    }
-  }
-
-  /// Builds the calendar view showing dots for days with activity.
+  /// Builds the monthly calendar view showing activity dots.
   Widget _buildCalendarView() {
     int totalEvents = 0;
     _events.forEach((_, list) => totalEvents += list.length);
 
     return Column(
       children: [
-        // Calendar Header Stats
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Card(
@@ -492,13 +482,6 @@ class _UserHomeState extends State<UserHome> {
                       const Text("Habits this Month", style: TextStyle(fontSize: 12)),
                     ],
                   ),
-                  Container(height: 30, width: 1, color: Colors.teal.shade200),
-                  const Column(
-                    children: [
-                      Text("Keep Going!", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.teal)),
-                      Text("Consistency is key", style: TextStyle(fontSize: 12)),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -506,65 +489,25 @@ class _UserHomeState extends State<UserHome> {
         ),
         Expanded(
           child: SingleChildScrollView(
-            child: Column(
-              children: [
-                TableCalendar(
-                  firstDay: DateTime.utc(2024, 1, 1),
-                  lastDay: DateTime.utc(2030, 12, 31),
-                  focusedDay: _focusedDay,
-                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                  eventLoader: (day) {
-                    final key = DateTime.utc(day.year, day.month, day.day);
-                    return _events[key] ?? [];
-                  },
-                  onDaySelected: (selectedDay, focusedDay) {
-                    setState(() {
-                      _selectedDay = selectedDay;
-                      _focusedDay = focusedDay;
-                    });
-                  },
-                  onPageChanged: (focusedDay) {
-                    _focusedDay = focusedDay;
-                    _fetchMonthlyEvents();
-                  },
-                  calendarStyle: const CalendarStyle(
-                    todayDecoration: BoxDecoration(color: Colors.teal, shape: BoxShape.circle),
-                    selectedDecoration: BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
-                    markerDecoration: BoxDecoration(color: Colors.pinkAccent, shape: BoxShape.circle),
-                  ),
-                ),
-                // Selected Day Details
-                if (_selectedDay != null) ...[
-                  const Divider(),
-                  FutureBuilder(
-                    future: Supabase.instance.client
-                        .from('habit_logs')
-                        .select('*, habits(title)')
-                        .gte('completed_at', DateFormat('yyyy-MM-dd').format(_selectedDay!))
-                        .lt('completed_at', DateFormat('yyyy-MM-dd').format(_selectedDay!.add(const Duration(days: 1)))),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const SizedBox();
-                      final logs = snapshot.data as List;
-                      if (logs.isEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Text("No blooms on ${DateFormat.yMMMd().format(_selectedDay!)}."),
-                        );
-                      }
-
-                      return Column(
-                        children: logs.map((log) {
-                          return ListTile(
-                            leading: const Icon(Icons.spa, size: 16, color: Colors.pink),
-                            title: Text(log['habits']['title'] ?? 'Habit'),
-                            subtitle: Text(DateFormat('hh:mm a').format(DateTime.parse(log['completed_at']).toLocal())),
-                          );
-                        }).toList(),
-                      );
-                    },
-                  )
-                ]
-              ],
+            child: TableCalendar(
+              firstDay: DateTime.utc(2024, 1, 1),
+              lastDay: DateTime.utc(2030, 12, 31),
+              focusedDay: _focusedDay,
+              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+              eventLoader: (day) {
+                final key = DateTime.utc(day.year, day.month, day.day);
+                return _events[key] ?? [];
+              },
+              onDaySelected: (selectedDay, focusedDay) {
+                setState(() {
+                  _selectedDay = selectedDay;
+                  _focusedDay = focusedDay;
+                });
+              },
+              onPageChanged: (focusedDay) {
+                _focusedDay = focusedDay;
+                _fetchMonthlyEvents();
+              },
             ),
           ),
         ),
@@ -572,10 +515,13 @@ class _UserHomeState extends State<UserHome> {
     );
   }
 
-  /// Launches a sensor game or completes a standard habit immediately.
+  /// Navigates to the specific game screen or marks a standard habit as done.
+  ///
+  /// If the habit is a "One-Time" task, it marks the permanent completion flag.
   void _startHabit(BuildContext context, Map<String, dynamic> habit) async {
     final habitType = habit['type'];
     final habitId = habit['id'];
+    final frequency = habit['frequency'];
 
     if (habitType == 'water_game') {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => WaterPourGame(habitId: habitId)));
@@ -584,7 +530,6 @@ class _UserHomeState extends State<UserHome> {
     } else if (habitType == 'walking_game') {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => WalkingHabit(habitId: habitId)));
     } else {
-      // Standard habits complete instantly
       try {
         await _habitRepo.completeHabitInteraction(habitId, _userId);
         if(mounted) AppUtils.showSnackBar(context, "Habit marked done!");
@@ -593,17 +538,24 @@ class _UserHomeState extends State<UserHome> {
       }
     }
 
-    // Refresh stats
-    setState(() {
-      _fetchMonthlyEvents();
-    });
+    if (frequency == 'once') {
+      try {
+        await Supabase.instance.client
+            .from('habits')
+            .update({'is_completed': true})
+            .eq('id', habitId);
+      } catch(e) { debugPrint("Failed to mark once-task complete: $e"); }
+    }
+
+    setState(() => _fetchMonthlyEvents());
   }
 
-  /// Shows a form dialog to create a new habit.
+  /// Displays a dialog to create a new habit with frequency and type options.
   Future<void> _showAddHabitDialog(BuildContext context) async {
     final controller = TextEditingController();
     String selectedType = 'water_game';
     String selectedIconAsset = 'check';
+    String selectedFrequency = 'daily';
 
     bool isSaving = false;
 
@@ -611,23 +563,6 @@ class _UserHomeState extends State<UserHome> {
       context: context,
       builder: (context) => StatefulBuilder(
           builder: (context, setDialogState) {
-
-            Widget buildIconOption(String key, IconData icon) {
-              final isSelected = selectedIconAsset == key;
-              return GestureDetector(
-                onTap: () => setDialogState(() => selectedIconAsset = key),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isSelected ? Colors.teal.withOpacity(0.2) : Colors.transparent,
-                    border: isSelected ? Border.all(color: Colors.teal, width: 2) : Border.all(color: Colors.grey.shade300),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: isSelected ? Colors.teal : Colors.grey),
-                ),
-              );
-            }
-
             return AlertDialog(
               title: const Text('Plant a New Habit'),
               content: SingleChildScrollView(
@@ -637,16 +572,25 @@ class _UserHomeState extends State<UserHome> {
                   children: [
                     TextField(
                         controller: controller,
-                        decoration: const InputDecoration(
-                            labelText: "Habit Name",
-                            border: OutlineInputBorder()
-                        )
+                        decoration: const InputDecoration(labelText: "Habit Name", border: OutlineInputBorder())
+                    ),
+                    const SizedBox(height: 16),
+                    const Text("Frequency:", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: selectedFrequency,
+                      decoration: const InputDecoration(border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: 'daily', child: Text('Daily (Resets every day)')),
+                        DropdownMenuItem(value: 'once', child: Text('One-Time Task (Stays done)')),
+                      ],
+                      onChanged: (val) => setDialogState(() => selectedFrequency = val!),
                     ),
                     const SizedBox(height: 16),
                     const Text("Habit Type:", style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      initialValue: selectedType,
+                      value: selectedType,
                       decoration: const InputDecoration(border: OutlineInputBorder()),
                       isExpanded: true,
                       items: const [
@@ -657,7 +601,6 @@ class _UserHomeState extends State<UserHome> {
                       ],
                       onChanged: (val) => setDialogState(() => selectedType = val!),
                     ),
-
                     if (selectedType == 'standard') ...[
                       const SizedBox(height: 20),
                       const Text("Choose Icon:", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -666,11 +609,9 @@ class _UserHomeState extends State<UserHome> {
                         spacing: 15,
                         runSpacing: 10,
                         children: [
-                          buildIconOption('check', Icons.check_circle_outline),
-                          buildIconOption('book', Icons.menu_book),
-                          buildIconOption('gym', Icons.fitness_center),
-                          buildIconOption('bed', Icons.bed),
-                          buildIconOption('sun', Icons.sunny),
+                          IconButton(icon: const Icon(Icons.check_circle_outline), onPressed: () => setDialogState(() => selectedIconAsset = 'check'), color: selectedIconAsset=='check'?Colors.teal:Colors.grey),
+                          IconButton(icon: const Icon(Icons.menu_book), onPressed: () => setDialogState(() => selectedIconAsset = 'book'), color: selectedIconAsset=='book'?Colors.teal:Colors.grey),
+                          IconButton(icon: const Icon(Icons.fitness_center), onPressed: () => setDialogState(() => selectedIconAsset = 'gym'), color: selectedIconAsset=='gym'?Colors.teal:Colors.grey),
                         ],
                       )
                     ],
@@ -678,45 +619,156 @@ class _UserHomeState extends State<UserHome> {
                 ),
               ),
               actions: [
-                TextButton(
-                    onPressed: isSaving ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel')
-                ),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
                 ElevatedButton(
                   onPressed: isSaving ? null : () async {
                     if (controller.text.isEmpty) return;
-
                     setDialogState(() => isSaving = true);
-
                     try {
-                      // Insert new habit into DB
                       await Supabase.instance.client.from('habits').insert({
                         'user_id': _userId,
                         'title': controller.text,
                         'type': selectedType,
+                        'frequency': selectedFrequency,
                         'icon_asset': selectedType == 'standard' ? selectedIconAsset : null,
                       });
-
                       if (context.mounted) {
                         Navigator.pop(context);
                         setState(() {});
-                        AppUtils.showSnackBar(context, "Seed planted successfully! 🌱");
                       }
                     } catch (e) {
-                      if (context.mounted) {
-                        AppUtils.showSnackBar(context, "Failed to plant: ${e.toString().split('\n').first}", isError: true);
-                        setDialogState(() => isSaving = false);
-                      }
+                      if (context.mounted) setDialogState(() => isSaving = false);
                     }
                   },
-                  child: isSaving
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Plant'),
+                  child: isSaving ? const CircularProgressIndicator() : const Text('Plant'),
                 ),
               ],
             );
           }
       ),
+    );
+  }
+}
+
+/// A reusable widget that displays a list of habits with client-side pagination.
+///
+/// Supports "Load More" functionality and conditionally renders Edit/Delete buttons
+/// based on the completion status of the habits.
+class PaginatedHabitList extends StatefulWidget {
+  final List<Map<String, dynamic>> habits;
+  final bool isDone;
+  final Function(Map<String, dynamic>) onStart;
+  final Function(String, String) onDelete;
+  final Function(Map<String, dynamic>) onEdit;
+
+  const PaginatedHabitList({
+    super.key,
+    required this.habits,
+    required this.isDone,
+    required this.onStart,
+    required this.onDelete,
+    required this.onEdit,
+  });
+
+  @override
+  State<PaginatedHabitList> createState() => _PaginatedHabitListState();
+}
+
+class _PaginatedHabitListState extends State<PaginatedHabitList> {
+  int _displayCount = 10;
+
+  IconData _getIconForHabit(String type, String? iconAsset) {
+    if (type == 'water_game') return Icons.water_drop;
+    if (type == 'meditation_game') return Icons.self_improvement;
+    if (type == 'walking_game') return Icons.directions_run;
+    if (iconAsset == 'book') return Icons.menu_book;
+    if (iconAsset == 'gym') return Icons.fitness_center;
+    return Icons.check_circle_outline;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.habits.isEmpty) {
+      return Center(child: Text(widget.isDone ? "Do a habit to see it here!" : "All caught up TODAY!"));
+    }
+
+    final visibleHabits = widget.habits.take(_displayCount).toList();
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: visibleHabits.length + (widget.habits.length > _displayCount ? 1 : 0),
+      itemBuilder: (context, index) {
+        // Pagination Button
+        if (index == visibleHabits.length) {
+          return TextButton(
+            onPressed: () {
+              setState(() {
+                _displayCount += 10;
+              });
+            },
+            child: Text("Load More (${widget.habits.length - _displayCount} remaining)"),
+          );
+        }
+
+        final habit = visibleHabits[index];
+        final isStandard = habit['type'] == 'standard';
+        final isOnce = habit['frequency'] == 'once';
+        final iconData = _getIconForHabit(habit['type'], habit['icon_asset']);
+
+        return Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          child: ListTile(
+            contentPadding: const EdgeInsets.all(12),
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: widget.isDone ? Colors.green.shade100 : Colors.teal.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(iconData, color: widget.isDone ? Colors.green : Colors.teal),
+            ),
+            title: Text(habit['title'],
+                style: TextStyle(
+                    decoration: widget.isDone ? TextDecoration.lineThrough : null,
+                    fontWeight: FontWeight.bold)),
+            subtitle: Text(
+              "${widget.isDone ? 'Completed' : (isStandard ? 'Standard' : 'Interactive')} • ${isOnce ? 'One-Time' : 'Daily'}",
+              style: const TextStyle(fontSize: 12),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!widget.isDone) ...[
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.blueGrey),
+                    onPressed: () => widget.onEdit(habit),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                    onPressed: () => widget.onDelete(habit['id'], habit['title']),
+                  ),
+                ],
+
+                // Action Button or Checkmark
+                if (widget.isDone)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8.0),
+                    child: Icon(Icons.check_circle, color: Colors.green),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8.0),
+                    child: ElevatedButton(
+                      onPressed: () => widget.onStart(habit),
+                      child: Text(isStandard ? "Done" : "Play"),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
